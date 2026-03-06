@@ -1,0 +1,23 @@
+                                          Table "public.characters"
+   Column   |              Type              | Collation | Nullable |                Default                 
+------------+--------------------------------+-----------+----------+----------------------------------------
+ id         | integer                        |           | not null | nextval('characters_id_seq'::regclass)
+ account_id | integer                        |           | not null | 
+ first_name | text                           |           | not null | 
+ last_name  | text                           |           | not null | 
+ age        | integer                        |           | not null | 25
+ gender     | integer                        |           | not null | 0
+ money      | integer                        |           | not null | 500
+ bank       | integer                        |           | not null | 2500
+ job        | text                           |           |          | 
+ position   | jsonb                          |           |          | 
+ char_data  | jsonb                          |           |          | 
+ created_at | timestamp(3) without time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at | timestamp(3) without time zone |           | not null | 
+ created    | smallint                       |           |          | 0
+Indexes:
+    "characters_pkey" PRIMARY KEY, btree (id)
+    "characters_account_id_idx" btree (account_id)
+Foreign-key constraints:
+    "characters_account_id_fkey" FOREIGN KEY (account_id) REFERENCES accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+

@@ -1,0 +1,41 @@
+# Bağımlılıklar
+node_modules/
+npm-debug.log*
+
+# Derleme çıktısı
+dist/
+build/
+
+# Ortam değişkenleri
+.env
+.env.local
+.env.*.local
+
+# Prisma
+/generated/prisma
+prisma/migrations/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# RAGE:MP server (büyük binary)
+ragemp-srv/ragemp-server
+ragemp-srv/bin/
+ragemp-srv/dotnet/
+
+# Loglar
+logs/
+*.log
+
+# Svelte build
+src/ui/.svelte-kit/
+src/ui/build/
+src/ui/node_modules/
+
+# TypeScript cache
+*.tsbuildinfo

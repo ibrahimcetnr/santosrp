@@ -1,0 +1,46 @@
+{
+  "name": "santosrp_project",
+  "version": "1.0.0",
+  "description": "SantosRP - RAGE:MP TypeScript Server",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:ui": "cd src/ui && npx vite build",
+    "build:all": "node scripts/build.js && cd src/ui && npx vite build",
+    "build:ts": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json",
+    "build:watch": "tsc --watch --project tsconfig.server.json",
+    "deploy": "node scripts/build.js && systemctl restart santosrp",
+    "dev": "ts-node -r tsconfig-paths/register src/server/index.ts",
+    "start": "node dist/server/index.js",
+    "rage:start": "systemctl start santosrp",
+    "rage:stop": "systemctl stop santosrp",
+    "rage:restart": "systemctl restart santosrp",
+    "rage:logs": "journalctl -u santosrp -f"
+  },
+  "keywords": [
+    "ragemp",
+    "gta5",
+    "roleplay",
+    "typescript"
+  ],
+  "author": "SantosRP Dev",
+  "license": "ISC",
+  "devDependencies": {
+    "@ragempcommunity/types-client": "^2.1.9",
+    "@ragempcommunity/types-server": "^2.1.9",
+    "@types/node": "^25.3.3",
+    "@types/pg": "^8.18.0",
+    "dotenv": "^17.3.1",
+    "esbuild": "^0.27.3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "pg": "^8.19.0"
+  }
+}

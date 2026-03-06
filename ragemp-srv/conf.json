@@ -1,0 +1,16 @@
+{
+  "maxplayers": 1000,
+  "name": "SantosRP | Roleplay Server",
+  "gamemode": "freeroam",
+  "stream-distance": 200,
+  "announce": false,
+  "csharp": "disabled",
+  "port": 22005,
+  "bind": "0.0.0.0",
+  "voice-chat": true,
+  "allow-cef-debugging": true,
+  "limit-time-of-connections-per-minute": 50,
+  "node-args": [
+    "--experimental-wasm-anyref"
+  ]
+}
