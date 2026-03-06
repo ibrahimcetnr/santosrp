@@ -77,7 +77,8 @@
   let chatContainer: HTMLElement;
 
   // --- KOMUT SİSTEMİ ---
-  type Command = { name: string; syntax: string; minLevel: number; category: 'player' | 'staff' | 'faction'; description?: string };
+  type CommandPermissions = { admin?: number; faction?: number; vip?: number; helper?: number };
+  type Command = { name: string; syntax: string; description?: string; permissions?: CommandPermissions };
   let allCommands = $state<Command[]>([]);
   
   // Props'tan gelen komutları allCommands'a yükle
@@ -97,7 +98,10 @@
     const hasSpace = parts.length > 1;
 
     // Önce yetki filtresi
-    const accessible = allCommands.filter(c => c.minLevel <= myAdminLevel);
+    const accessible = allCommands.filter(c => {
+      const reqAdmin = c.permissions?.admin ?? 0;
+      return myAdminLevel >= reqAdmin;
+    });
 
     // Sonra input filtresi
     return accessible.filter(c => {
@@ -171,6 +175,19 @@
     if (wasAtBottom && chatContainer) {
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
+  }
+
+  /** Komutun görsel kategorisini permissions objesine göre belirler */
+  function getCmdClass(cmd: Command): string {
+    const p = cmd.permissions;
+    if (!p) return 'player';
+
+    if (p.admin && p.admin > 0) return 'staff';
+    if (p.faction && p.faction > 0) return 'faction';
+    if (p.helper && p.helper > 0) return 'helper';
+    if (p.vip && p.vip > 0) return 'vip';
+
+    return 'player';
   }
 
   /** Ham mesajı parse edip $state dizisine ekler (window.addChatMessage + chat:push için) */
@@ -360,7 +377,7 @@
         {#if filteredCommands.length > 0}
           <div class="command-row">
             {#each filteredCommands as cmd}
-              <div class="cmd-box {cmd.category}" onclick={() => selectCommand(cmd.name)}>
+              <div class="cmd-box {getCmdClass(cmd)}" onclick={() => selectCommand(cmd.name)}>
                 {cmd.name} <span class="cmd-syntax">{cmd.syntax}</span>
               </div>
             {/each}

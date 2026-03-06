@@ -48,12 +48,18 @@ interface SyncTimeData {
   timestamp: number;
 }
 
+interface CommandPermissions {
+  admin?: number;
+  faction?: number;
+  vip?: number;
+  helper?: number;
+}
+
 interface CommandData {
   name: string;
   syntax: string;
-  minLevel: number;
-  category: 'player' | 'staff' | 'faction';
   description?: string;
+  permissions?: CommandPermissions;
 }
 
 declare global {

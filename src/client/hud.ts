@@ -32,7 +32,7 @@ function sendToHUD(fn: string, data: unknown): void {
 /** RAGE:MP player.zone property ile bölge adını döndürür */
 function getZoneName(): string {
   try {
-    const raw = (mp.players.local as any).zone as string;
+    const raw = mp.players.local.zone as string;
     if (raw && typeof raw === 'string' && raw.length > 0) {
       // "HAWICK" → "Hawick", "EAST_LS" → "East Ls"
       return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase().replace(/_/g, ' ');

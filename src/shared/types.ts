@@ -56,13 +56,19 @@ export interface INotification {
   duration?: number;
 }
 
-/** Komut Sistemi - Dinamik Yetki Tabanlı */
+/** Komut Sistemi - İzin Tabanlı */
+export interface ICommandPermissions {
+  admin?: number;
+  faction?: number;
+  vip?: number;
+  helper?: number;
+}
+
 export interface ICommand {
   name: string;           // Komut adı (örn: "/setadmin")
   syntax: string;         // Argüman sözdizimi (örn: "[ID] [Level]")
-  minLevel: number;       // Minimum adminLevel (0 = herkes, 10 = admin vb.)
-  category: 'player' | 'staff' | 'faction';  // Görsel kategori
   description?: string;   // Açıklama (opsiyonel)
+  permissions?: ICommandPermissions;
 }
 
 /** RAGE:MP PlayerMp genişletmesi — auth sonrası eklenen alanlar */
@@ -73,5 +79,10 @@ declare global {
     characterId?: number;
     accountUsername?: string;
     characterName?: string;   // "Ad Soyad" formatı — HUD watermark ve chat için
+    factionType?: number;
+    factionRank?: number;
+    vipLevel?: number;
+    helperLevel?: number;
+    zone?: string;
   }
 }

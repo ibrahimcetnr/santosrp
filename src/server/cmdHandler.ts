@@ -16,6 +16,56 @@ interface RegisteredCommand extends ICommand {
 const commands = new Map<string, RegisteredCommand>();
 
 /**
+ * Belirli bir mesafe içindeki oyunculara mesaj gönderir
+ */
+function broadcastInRange(player: PlayerMp, range: number, message: string): void {
+  const pos = player.position;
+  const dimension = player.dimension;
+
+  mp.players.forEachInRange(pos, range, dimension, (target: PlayerMp) => {
+    if (isPlayerValid(target) && target.characterId) {
+      target.outputChatBox(message);
+    }
+  });
+}
+
+/** İki HEX rengi mesafe faktörüne (0.0-1.0) göre karıştırır */
+function lerpColor(color1: string, color2: string, factor: number): string {
+  const hex2rgb = (hex: string) => [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+  const c1 = hex2rgb(color1);
+  const c2 = hex2rgb(color2);
+  const r = Math.round(c1[0] + factor * (c2[0] - c1[0]));
+  const g = Math.round(c1[1] + factor * (c2[1] - c1[1]));
+  const b = Math.round(c1[2] + factor * (c2[2] - c1[2]));
+  return `!{#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}}`;
+}
+
+/** Mesafeye göre solan renk ile mesaj gönderir */
+function broadcastFadingMessage(
+  player: PlayerMp,
+  maxRange: number,
+  baseColor: string,
+  darkColor: string,
+  formatMsg: (color: string) => string
+): void {
+  const pos = player.position;
+  const dimension = player.dimension;
+
+  mp.players.forEachInRange(pos, maxRange, dimension, (target: PlayerMp) => {
+    if (isPlayerValid(target) && target.characterId) {
+      const dist = player.dist(target.position);
+      const factor = Math.min(dist / maxRange, 1.0);
+      const fadeColor = lerpColor(baseColor, darkColor, factor);
+      target.outputChatBox(formatMsg(fadeColor));
+    }
+  });
+}
+
+/**
  * Yeni bir komut kaydeder
  * @param cmd Komut bilgileri (name, syntax, minLevel, category)
  * @param handler Komut çalıştırıldığında çağrılacak fonksiyon
@@ -28,7 +78,23 @@ export function registerCommand(cmd: ICommand, handler: CommandHandler): void {
   }
   
   commands.set(cmdName, { ...cmd, handler });
-  console.log(`[CMD] Komut kaydedildi: ${cmdName} (minLevel: ${cmd.minLevel}, category: ${cmd.category})`);
+  console.log(`[CMD] Komut kaydedildi: ${cmdName}`);
+}
+
+/**
+ * Oyuncunun bir komuta erişebildiğini kontrol eder
+ */
+function hasCommandAccess(player: PlayerMp, cmd: ICommand): boolean {
+  const p = cmd.permissions;
+
+  if (!p || Object.keys(p).length === 0) return true;
+
+  if (p.admin && p.admin > 0 && (player.adminLevel ?? 0) >= p.admin) return true;
+  if (p.faction && p.faction > 0 && (player.factionType ?? 0) === p.faction) return true;
+  if (p.vip && p.vip > 0 && (player.vipLevel ?? 0) >= p.vip) return true;
+  if (p.helper && p.helper > 0 && (player.helperLevel ?? 0) >= p.helper) return true;
+
+  return false;
 }
 
 /**
@@ -38,20 +104,19 @@ export function registerCommand(cmd: ICommand, handler: CommandHandler): void {
  */
 export function getAvailableCommands(adminLevel: number): ICommand[] {
   const available: ICommand[] = [];
-  
+
   for (const [_, cmd] of commands) {
-    if (adminLevel >= cmd.minLevel) {
-      // Handler'ı çıkar, sadece metadata gönder
+    const reqAdmin = cmd.permissions?.admin ?? 0;
+    if (adminLevel >= reqAdmin) {
       available.push({
         name: cmd.name,
         syntax: cmd.syntax,
-        minLevel: cmd.minLevel,
-        category: cmd.category,
+        permissions: cmd.permissions,
         description: cmd.description,
       });
     }
   }
-  
+
   return available;
 }
 
@@ -75,9 +140,8 @@ export async function executeCommand(player: PlayerMp, message: string): Promise
   }
   
   // Yetki kontrolü
-  const playerLevel = player.adminLevel ?? 0;
-  if (playerLevel < cmd.minLevel) {
-    player.outputChatBox(`!{#ef4444}[HATA] Bu komut için yetkiniz yok. (Gereken: ${cmd.minLevel}, Sizinki: ${playerLevel})`);
+  if (!hasCommandAccess(player, cmd)) {
+    player.outputChatBox('!{#ef4444}[HATA] Bu komut için yetkiniz yok.');
     return;
   }
   
@@ -103,14 +167,10 @@ export function initCommandSystem(): void {
     if (!clean) return;
 
     const charName = player.characterName || player.accountUsername || player.name;
-    const formatted = `${charName}: ${clean}`;
 
-    mp.players.forEach((p: PlayerMp) => {
-      try {
-        if (isPlayerValid(p) && p.characterId) {
-          p.outputChatBox(formatted);
-        }
-      } catch {}
+    // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
+    broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
+      return `${color}${charName} diyor ki: ${clean}`;
     });
 
     console.log(`[CHAT] ${charName}: ${clean}`);
@@ -140,8 +200,6 @@ registerCommand(
   {
     name: '/report',
     syntax: '[Mesaj]',
-    minLevel: 0,
-    category: 'player',
     description: 'Yöneticilere rapor gönderir',
   },
   (player: PlayerMp, args: string[]) => {
@@ -182,9 +240,8 @@ registerCommand(
   {
     name: '/setadmin',
     syntax: '[ID] [Level]',
-    minLevel: 10,
-    category: 'staff',
     description: 'Oyuncuya admin yetkisi verir',
+    permissions: { admin: 10 },
   },
   async (player: PlayerMp, args: string[]) => {
     if (args.length < 2) {
@@ -265,9 +322,8 @@ registerCommand(
   {
     name: '/kick',
     syntax: '[ID] [Sebep]',
-    minLevel: 5,
-    category: 'staff',
     description: 'Oyuncuyu sunucudan atar',
+    permissions: { admin: 5 },
   },
   (player: PlayerMp, args: string[]) => {
     if (args.length < 2) {
@@ -321,8 +377,7 @@ registerCommand(
   {
     name: '/admins',
     syntax: '',
-    minLevel: 0,
-    category: 'player',
+
     description: 'Çevrimiçi yöneticileri listeler',
   },
   (player: PlayerMp, _args: string[]) => {
@@ -358,9 +413,8 @@ registerCommand(
   {
     name: '/veh',
     syntax: '[Model]',
-    minLevel: 8,
-    category: 'staff',
     description: 'Araç spawn eder',
+    permissions: { admin: 8 },
   },
   (player: PlayerMp, args: string[]) => {
     if (args.length === 0) {
@@ -398,4 +452,117 @@ registerCommand(
       console.error('[VEH] Invalid model:', modelName, error);
     }
   }
+);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ROLEPLAY CHAT KOMUTLARI
+// ════════════════════════════════════════════════════════════════════════════════
+
+registerCommand(
+  { name: '/me', syntax: '[Aksiyon]', description: 'Karakter eylemi belirtir (15m)', permissions: {} },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /me [Aksiyon]');
+      return;
+    }
+    const charName = player.characterName || player.accountUsername || player.name;
+    // 15 Metre - Mor/Lavenderdan (#c2a2da) Koyu Mora (#4a3060) solar
+    broadcastFadingMessage(player, 15.0, '#c2a2da', '#4a3060', (color) => {
+      return `${color}* ${charName} ${args.join(' ')}`;
+    });
+  }
+);
+
+registerCommand(
+  { name: '/do', syntax: '[Durum]', description: 'Çevre/Karakter durumu belirtir (15m)', permissions: {} },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /do [Durum]');
+      return;
+    }
+    const charName = player.characterName || player.accountUsername || player.name;
+    // 15 Metre - Mor/Lavenderdan (#c2a2da) Koyu Mora (#4a3060) solar
+    broadcastFadingMessage(player, 15.0, '#c2a2da', '#4a3060', (color) => {
+      return `${color}* ${args.join(' ')} (( ${charName} ))`;
+    });
+  }
+);
+
+registerCommand(
+  { name: '/s', syntax: '[Mesaj]', description: 'Bağırarak konuşursunuz (30m)', permissions: {} },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /s [Mesaj]');
+      return;
+    }
+    const charName = player.characterName || player.accountUsername || player.name;
+    // 30 Metre - Parlak Sarıdan (#fbbf24) Koyu Kahverengiye (#66541b) solar
+    broadcastFadingMessage(player, 30.0, '#fbbf24', '#66541b', (color) => {
+      return `${color}${charName} bağırır: ${args.join(' ')}!`;
+    });
+  }
+);
+
+registerCommand(
+  { name: '/l', syntax: '[Mesaj]', description: 'Kısık sesle konuşursunuz (3m)', permissions: {} },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /l [Mesaj]');
+      return;
+    }
+    const charName = player.characterName || player.accountUsername || player.name;
+    // 3 Metre - Açık Griden (#d1d5db) Neredeyse Siyaha (#333333) solar
+    broadcastFadingMessage(player, 3.0, '#d1d5db', '#333333', (color) => {
+      return `${color}${charName} kısık sesle: ${args.join(' ')}`;
+    });
+  }
+);
+
+registerCommand(
+  { name: '/b', syntax: '[Mesaj]', description: 'Lokal OOC sohbet (15m)', permissions: {} },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /b [Mesaj]');
+      return;
+    }
+    const charName = player.characterName || player.accountUsername || player.name;
+    const message = `!{#b3b3b3}(( [OOC] ${charName}: ${args.join(' ')} ))`;
+    broadcastInRange(player, 15.0, message);
+  }
+);
+
+function sendPrivateMessage(player: PlayerMp, args: string[]): void {
+  if (args.length < 2) {
+    player.outputChatBox('!{#fbbf24}[KULLANIM] /pm [ID] [Mesaj]');
+    return;
+  }
+
+  const targetId = parseInt(args[0], 10);
+  if (isNaN(targetId)) {
+    player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+    return;
+  }
+
+  const target = mp.players.at(targetId);
+  if (!target || !isPlayerValid(target)) {
+    player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı.');
+    return;
+  }
+
+  const charName = player.characterName || player.accountUsername || player.name;
+  const targetName = target.characterName || target.accountUsername || target.name;
+  const mesaj = args.slice(1).join(' ');
+
+  player.outputChatBox(`!{#facc15}[PM] ${targetName} (${target.id}) kişisine: ${mesaj}`);
+  target.outputChatBox(`!{#facc15}[PM] ${charName} (${player.id}) kişisinden: ${mesaj}`);
+}
+
+registerCommand(
+  { name: '/pm', syntax: '[ID] [Mesaj]', description: 'Belirtilen ID\'ye özel mesaj gönderir', permissions: {} },
+  sendPrivateMessage
+);
+
+registerCommand(
+  { name: '/w', syntax: '[ID] [Mesaj]', description: 'Fısıldama (/pm takı adı)', permissions: {} },
+  sendPrivateMessage
 );
