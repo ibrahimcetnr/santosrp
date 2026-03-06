@@ -1,0 +1,155 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+const cmdHandler_1 = require("../cmdHandler");
+const safeEvent_1 = require("../utils/safeEvent");
+(0, cmdHandler_1.registerCommand)({
+    name: '/setadmin',
+    syntax: '[ID] [Level]',
+    description: 'Oyuncuya admin yetkisi verir',
+    permissions: { admin: 10 },
+}, async (player, args) => {
+    if (args.length < 2) {
+        player.outputChatBox('!{#fbbf24}[KULLANIM] /setadmin [ID] [Level]');
+        player.outputChatBox('!{#94a3b8}Örnek: /setadmin 5 3');
+        return;
+    }
+    const targetId = parseInt(args[0], 10);
+    const newLevel = parseInt(args[1], 10);
+    if (isNaN(targetId) || isNaN(newLevel)) {
+        player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID veya seviye.');
+        return;
+    }
+    if (newLevel < 0 || newLevel > 100) {
+        player.outputChatBox('!{#ef4444}[HATA] Admin seviyesi 0-100 arasında olmalı.');
+        return;
+    }
+    const target = mp.players.at(targetId);
+    if (!target || !(0, safeEvent_1.isPlayerValid)(target)) {
+        player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
+        return;
+    }
+    if (!target.accountId) {
+        player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu giriş yapmamış.');
+        return;
+    }
+    const playerLevel = player.adminLevel ?? 0;
+    if (newLevel > playerLevel) {
+        player.outputChatBox(`!{#ef4444}[HATA] Kendi seviyenizden (${playerLevel}) yüksek yetki veremezsiniz.`);
+        return;
+    }
+    const { query } = await Promise.resolve().then(() => __importStar(require('../db')));
+    try {
+        await query('UPDATE accounts SET admin_level = $1 WHERE id = $2', [newLevel, target.accountId]);
+        target.adminLevel = newLevel;
+        const availableCommands = (0, cmdHandler_1.getAvailableCommands)(newLevel);
+        target.call('client:updateCommandList', [JSON.stringify(availableCommands)]);
+        const targetName = target.characterName || target.accountUsername || target.name;
+        const adminName = player.characterName || player.accountUsername || player.name;
+        player.outputChatBox(`!{#22c55e}[BAŞARILI] ${targetName} oyuncusunun admin seviyesi ${newLevel} olarak ayarlandı.`);
+        target.outputChatBox(`!{#c9a84c}[BİLGİ] Admin seviyeniz ${adminName} tarafından ${newLevel} olarak güncellendi.`);
+        console.log(`[SETADMIN] ${adminName} → ${targetName}: Level ${newLevel}`);
+    }
+    catch (error) {
+        console.error('[SETADMIN] Database error:', error);
+        player.outputChatBox('!{#ef4444}[HATA] Veritabanı hatası.');
+    }
+});
+(0, cmdHandler_1.registerCommand)({
+    name: '/kick',
+    syntax: '[ID] [Sebep]',
+    description: 'Oyuncuyu sunucudan atar',
+    permissions: { admin: 5 },
+}, (player, args) => {
+    if (args.length < 2) {
+        player.outputChatBox('!{#fbbf24}[KULLANIM] /kick [ID] [Sebep]');
+        player.outputChatBox('!{#94a3b8}Örnek: /kick 5 Trolleme');
+        return;
+    }
+    const targetId = parseInt(args[0], 10);
+    const reason = args.slice(1).join(' ');
+    if (isNaN(targetId)) {
+        player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+        return;
+    }
+    const target = mp.players.at(targetId);
+    if (!target || !(0, safeEvent_1.isPlayerValid)(target)) {
+        player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
+        return;
+    }
+    const targetLevel = target.adminLevel ?? 0;
+    const playerLevel = player.adminLevel ?? 0;
+    if (targetLevel >= playerLevel && target !== player) {
+        player.outputChatBox('!{#ef4444}[HATA] Kendi seviyenizden yüksek veya eşit yetkiliyi kickleyemezsiniz.');
+        return;
+    }
+    const targetName = target.characterName || target.accountUsername || target.name;
+    const adminName = player.characterName || player.accountUsername || player.name;
+    mp.players.broadcast(`!{#ef4444}[KICK] ${targetName} sunucudan atıldı. Sebep: ${reason} (Yetkili: ${adminName})`);
+    console.log(`[KICK] ${adminName} kicked ${targetName}: ${reason}`);
+    target.kick(`Sunucudan atıldınız.\nSebep: ${reason}\nYetkili: ${adminName}`);
+});
+(0, cmdHandler_1.registerCommand)({
+    name: '/veh',
+    syntax: '[Model]',
+    description: 'Araç spawn eder',
+    permissions: { admin: 8 },
+}, (player, args) => {
+    if (args.length === 0) {
+        player.outputChatBox('!{#fbbf24}[KULLANIM] /veh [Model]');
+        player.outputChatBox('!{#94a3b8}Örnek: /veh adder');
+        return;
+    }
+    const modelName = args[0].toLowerCase();
+    const pos = player.position;
+    const heading = player.heading;
+    const rad = (heading * Math.PI) / 180;
+    const spawnX = pos.x + Math.sin(rad) * 5;
+    const spawnY = pos.y + Math.cos(rad) * 5;
+    try {
+        mp.vehicles.new(mp.joaat(modelName), new mp.Vector3(spawnX, spawnY, pos.z), {
+            heading: heading,
+            numberPlate: 'ADMIN',
+            color: [[0, 0, 0], [0, 0, 0]],
+        });
+        player.outputChatBox(`!{#22c55e}[BAŞARILI] ${modelName} aracı spawn edildi.`);
+        console.log(`[VEH] ${player.characterName || player.name} spawned ${modelName}`);
+    }
+    catch (error) {
+        player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç modeli.');
+        console.error('[VEH] Invalid model:', modelName, error);
+    }
+});
+//# sourceMappingURL=admin.js.map

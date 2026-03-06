@@ -33,6 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.broadcastInRange = broadcastInRange;
+exports.broadcastFadingMessage = broadcastFadingMessage;
 exports.registerCommand = registerCommand;
 exports.getAvailableCommands = getAvailableCommands;
 exports.executeCommand = executeCommand;
@@ -40,6 +42,45 @@ exports.initCommandSystem = initCommandSystem;
 const safeEvent_1 = require("./utils/safeEvent");
 // Komut deposu
 const commands = new Map();
+/**
+ * Belirli bir mesafe içindeki oyunculara mesaj gönderir
+ */
+function broadcastInRange(player, range, message) {
+    const pos = player.position;
+    const dimension = player.dimension;
+    mp.players.forEachInRange(pos, range, dimension, (target) => {
+        if ((0, safeEvent_1.isPlayerValid)(target) && target.characterId) {
+            target.outputChatBox(message);
+        }
+    });
+}
+/** İki HEX rengi mesafe faktörüne (0.0-1.0) göre karıştırır */
+function lerpColor(color1, color2, factor) {
+    const hex2rgb = (hex) => [
+        parseInt(hex.slice(1, 3), 16),
+        parseInt(hex.slice(3, 5), 16),
+        parseInt(hex.slice(5, 7), 16),
+    ];
+    const c1 = hex2rgb(color1);
+    const c2 = hex2rgb(color2);
+    const r = Math.round(c1[0] + factor * (c2[0] - c1[0]));
+    const g = Math.round(c1[1] + factor * (c2[1] - c1[1]));
+    const b = Math.round(c1[2] + factor * (c2[2] - c1[2]));
+    return `!{#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}}`;
+}
+/** Mesafeye göre solan renk ile mesaj gönderir */
+function broadcastFadingMessage(player, maxRange, baseColor, darkColor, formatMsg) {
+    const pos = player.position;
+    const dimension = player.dimension;
+    mp.players.forEachInRange(pos, maxRange, dimension, (target) => {
+        if ((0, safeEvent_1.isPlayerValid)(target) && target.characterId) {
+            const dist = player.dist(target.position);
+            const factor = Math.min(dist / maxRange, 1.0);
+            const fadeColor = lerpColor(baseColor, darkColor, factor);
+            target.outputChatBox(formatMsg(fadeColor));
+        }
+    });
+}
 /**
  * Yeni bir komut kaydeder
  * @param cmd Komut bilgileri (name, syntax, minLevel, category)
@@ -51,7 +92,24 @@ function registerCommand(cmd, handler) {
         console.warn(`[CMD] Komut zaten kayıtlı: ${cmdName} (üzerine yazılıyor)`);
     }
     commands.set(cmdName, { ...cmd, handler });
-    console.log(`[CMD] Komut kaydedildi: ${cmdName} (minLevel: ${cmd.minLevel}, category: ${cmd.category})`);
+    console.log(`[CMD] Komut kaydedildi: ${cmdName}`);
+}
+/**
+ * Oyuncunun bir komuta erişebildiğini kontrol eder
+ */
+function hasCommandAccess(player, cmd) {
+    const p = cmd.permissions;
+    if (!p || Object.keys(p).length === 0)
+        return true;
+    if (p.admin && p.admin > 0 && (player.adminLevel ?? 0) >= p.admin)
+        return true;
+    if (p.faction && p.faction > 0 && (player.factionType ?? 0) === p.faction)
+        return true;
+    if (p.vip && p.vip > 0 && (player.vipLevel ?? 0) >= p.vip)
+        return true;
+    if (p.helper && p.helper > 0 && (player.helperLevel ?? 0) >= p.helper)
+        return true;
+    return false;
 }
 /**
  * Oyuncunun erişebildiği tüm komutları döndürür
@@ -61,13 +119,12 @@ function registerCommand(cmd, handler) {
 function getAvailableCommands(adminLevel) {
     const available = [];
     for (const [_, cmd] of commands) {
-        if (adminLevel >= cmd.minLevel) {
-            // Handler'ı çıkar, sadece metadata gönder
+        const reqAdmin = cmd.permissions?.admin ?? 0;
+        if (adminLevel >= reqAdmin) {
             available.push({
                 name: cmd.name,
                 syntax: cmd.syntax,
-                minLevel: cmd.minLevel,
-                category: cmd.category,
+                permissions: cmd.permissions,
                 description: cmd.description,
             });
         }
@@ -91,9 +148,8 @@ async function executeCommand(player, message) {
         return;
     }
     // Yetki kontrolü
-    const playerLevel = player.adminLevel ?? 0;
-    if (playerLevel < cmd.minLevel) {
-        player.outputChatBox(`!{#ef4444}[HATA] Bu komut için yetkiniz yok. (Gereken: ${cmd.minLevel}, Sizinki: ${playerLevel})`);
+    if (!hasCommandAccess(player, cmd)) {
+        player.outputChatBox('!{#ef4444}[HATA] Bu komut için yetkiniz yok.');
         return;
     }
     // Komutu çalıştır
@@ -119,14 +175,9 @@ function initCommandSystem() {
         if (!clean)
             return;
         const charName = player.characterName || player.accountUsername || player.name;
-        const formatted = `${charName}: ${clean}`;
-        mp.players.forEach((p) => {
-            try {
-                if ((0, safeEvent_1.isPlayerValid)(p) && p.characterId) {
-                    p.outputChatBox(formatted);
-                }
-            }
-            catch { }
+        // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
+        broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
+            return `${color}${charName} diyor ki: ${clean}`;
         });
         console.log(`[CHAT] ${charName}: ${clean}`);
     });
@@ -141,214 +192,6 @@ function initCommandSystem() {
         await executeCommand(player, fullCmd);
     });
     console.log('[CMD] Komut sistemi başlatıldı.');
+    Promise.resolve().then(() => __importStar(require('./commands'))); // Alt modülleri yükle
 }
-// ══════════════════════════════════════════════════════════════════════════════
-// ÖRNEK KOMUTLAR
-// ══════════════════════════════════════════════════════════════════════════════
-/**
- * /report [Mesaj] - Oyuncu raporu (minLevel: 0, herkes kullanabilir)
- */
-registerCommand({
-    name: '/report',
-    syntax: '[Mesaj]',
-    minLevel: 0,
-    category: 'player',
-    description: 'Yöneticilere rapor gönderir',
-}, (player, args) => {
-    if (args.length === 0) {
-        player.outputChatBox('!{#fbbf24}[KULLANIM] /report [Mesaj]');
-        return;
-    }
-    const reportMessage = args.join(' ');
-    const charName = player.characterName || player.accountUsername || player.name;
-    // Tüm adminlere bildir (adminLevel >= 1)
-    let notified = 0;
-    mp.players.forEach((admin) => {
-        try {
-            if ((0, safeEvent_1.isPlayerValid)(admin) && (admin.adminLevel ?? 0) >= 1) {
-                admin.outputChatBox(`!{#ef4444}[REPORT] ${charName} (ID: ${player.id}): !{#ffffff}${reportMessage}`);
-                notified++;
-            }
-        }
-        catch { }
-    });
-    player.outputChatBox('!{#22c55e}[BAŞARILI] Raporunuz yöneticilere iletildi.');
-    console.log(`[REPORT] ${charName} (ID: ${player.id}): ${reportMessage}`);
-    if (notified === 0) {
-        player.outputChatBox('!{#fbbf24}[BİLGİ] Şu anda çevrimiçi yetkili bulunmuyor.');
-    }
-});
-/**
- * /setadmin [ID] [Level] - Oyuncuya admin yetkisi ver (minLevel: 10)
- */
-registerCommand({
-    name: '/setadmin',
-    syntax: '[ID] [Level]',
-    minLevel: 10,
-    category: 'staff',
-    description: 'Oyuncuya admin yetkisi verir',
-}, async (player, args) => {
-    if (args.length < 2) {
-        player.outputChatBox('!{#fbbf24}[KULLANIM] /setadmin [ID] [Level]');
-        player.outputChatBox('!{#94a3b8}Örnek: /setadmin 5 3');
-        return;
-    }
-    const targetId = parseInt(args[0], 10);
-    const newLevel = parseInt(args[1], 10);
-    if (isNaN(targetId) || isNaN(newLevel)) {
-        player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID veya seviye.');
-        return;
-    }
-    if (newLevel < 0 || newLevel > 100) {
-        player.outputChatBox('!{#ef4444}[HATA] Admin seviyesi 0-100 arasında olmalı.');
-        return;
-    }
-    // Hedef oyuncuyu bul
-    const target = mp.players.at(targetId);
-    if (!target || !(0, safeEvent_1.isPlayerValid)(target)) {
-        player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
-        return;
-    }
-    if (!target.accountId) {
-        player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu giriş yapmamış.');
-        return;
-    }
-    // Kendi seviyesinden yüksek yetki veremez
-    const playerLevel = player.adminLevel ?? 0;
-    if (newLevel > playerLevel) {
-        player.outputChatBox(`!{#ef4444}[HATA] Kendi seviyenizden (${playerLevel}) yüksek yetki veremezsiniz.`);
-        return;
-    }
-    // Veritabanını güncelle
-    const { query } = await Promise.resolve().then(() => __importStar(require('./db')));
-    try {
-        await query('UPDATE accounts SET admin_level = $1 WHERE id = $2', [newLevel, target.accountId]);
-        // Oyuncunun runtime değerini güncelle
-        target.adminLevel = newLevel;
-        // Komut listesini güncelle (yeni yetkiler için)
-        const availableCommands = getAvailableCommands(newLevel);
-        target.call('client:updateCommandList', [JSON.stringify(availableCommands)]);
-        // Bildirimleri gönder
-        const targetName = target.characterName || target.accountUsername || target.name;
-        const adminName = player.characterName || player.accountUsername || player.name;
-        player.outputChatBox(`!{#22c55e}[BAŞARILI] ${targetName} oyuncusunun admin seviyesi ${newLevel} olarak ayarlandı.`);
-        target.outputChatBox(`!{#c9a84c}[BİLGİ] Admin seviyeniz ${adminName} tarafından ${newLevel} olarak güncellendi.`);
-        console.log(`[SETADMIN] ${adminName} → ${targetName}: Level ${newLevel}`);
-    }
-    catch (error) {
-        console.error('[SETADMIN] Database error:', error);
-        player.outputChatBox('!{#ef4444}[HATA] Veritabanı hatası.');
-    }
-});
-/**
- * /kick [ID] [Sebep] - Oyuncuyu sunucudan atar (minLevel: 5)
- */
-registerCommand({
-    name: '/kick',
-    syntax: '[ID] [Sebep]',
-    minLevel: 5,
-    category: 'staff',
-    description: 'Oyuncuyu sunucudan atar',
-}, (player, args) => {
-    if (args.length < 2) {
-        player.outputChatBox('!{#fbbf24}[KULLANIM] /kick [ID] [Sebep]');
-        player.outputChatBox('!{#94a3b8}Örnek: /kick 5 Trolleme');
-        return;
-    }
-    const targetId = parseInt(args[0], 10);
-    const reason = args.slice(1).join(' ');
-    if (isNaN(targetId)) {
-        player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
-        return;
-    }
-    const target = mp.players.at(targetId);
-    if (!target || !(0, safeEvent_1.isPlayerValid)(target)) {
-        player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
-        return;
-    }
-    const targetLevel = target.adminLevel ?? 0;
-    const playerLevel = player.adminLevel ?? 0;
-    // Kendi seviyesinden yüksek yetkiliyi kickleyemez
-    if (targetLevel >= playerLevel && target !== player) {
-        player.outputChatBox('!{#ef4444}[HATA] Kendi seviyenizden yüksek veya eşit yetkiliyi kickleyemezsiniz.');
-        return;
-    }
-    const targetName = target.characterName || target.accountUsername || target.name;
-    const adminName = player.characterName || player.accountUsername || player.name;
-    // Global bildirim
-    mp.players.broadcast(`!{#ef4444}[KICK] ${targetName} sunucudan atıldı. Sebep: ${reason} (Yetkili: ${adminName})`);
-    console.log(`[KICK] ${adminName} kicked ${targetName}: ${reason}`);
-    // Hedefi at
-    target.kick(`Sunucudan atıldınız.\nSebep: ${reason}\nYetkili: ${adminName}`);
-});
-/**
- * /admins - Çevrimiçi yöneticileri listeler (minLevel: 0)
- */
-registerCommand({
-    name: '/admins',
-    syntax: '',
-    minLevel: 0,
-    category: 'player',
-    description: 'Çevrimiçi yöneticileri listeler',
-}, (player, _args) => {
-    const admins = [];
-    mp.players.forEach((p) => {
-        try {
-            if ((0, safeEvent_1.isPlayerValid)(p) && p.characterId) {
-                const level = p.adminLevel ?? 0;
-                if (level > 0) {
-                    const name = p.characterName || p.accountUsername || p.name;
-                    admins.push(`${name} (ID: ${p.id}, Seviye: ${level})`);
-                }
-            }
-        }
-        catch { }
-    });
-    if (admins.length === 0) {
-        player.outputChatBox('!{#fbbf24}[BİLGİ] Şu anda çevrimiçi yetkili bulunmuyor.');
-    }
-    else {
-        player.outputChatBox('!{#c9a84c}[YETKİLİLER] Çevrimiçi yöneticiler:');
-        admins.forEach((admin) => {
-            player.outputChatBox(`!{#ffffff}• ${admin}`);
-        });
-    }
-});
-/**
- * /veh [Model] - Oyuncuya araç spawn eder (minLevel: 8)
- */
-registerCommand({
-    name: '/veh',
-    syntax: '[Model]',
-    minLevel: 8,
-    category: 'staff',
-    description: 'Araç spawn eder',
-}, (player, args) => {
-    if (args.length === 0) {
-        player.outputChatBox('!{#fbbf24}[KULLANIM] /veh [Model]');
-        player.outputChatBox('!{#94a3b8}Örnek: /veh adder');
-        return;
-    }
-    const modelName = args[0].toLowerCase();
-    // Oyuncunun önünde araç spawn et
-    const pos = player.position;
-    const heading = player.heading;
-    // 5 birim ileri
-    const rad = (heading * Math.PI) / 180;
-    const spawnX = pos.x + Math.sin(rad) * 5;
-    const spawnY = pos.y + Math.cos(rad) * 5;
-    try {
-        const vehicle = mp.vehicles.new(mp.joaat(modelName), new mp.Vector3(spawnX, spawnY, pos.z), {
-            heading: heading,
-            numberPlate: 'ADMIN',
-            color: [[0, 0, 0], [0, 0, 0]],
-        });
-        player.outputChatBox(`!{#22c55e}[BAŞARILI] ${modelName} aracı spawn edildi.`);
-        console.log(`[VEH] ${player.characterName || player.name} spawned ${modelName}`);
-    }
-    catch (error) {
-        player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç modeli.');
-        console.error('[VEH] Invalid model:', modelName, error);
-    }
-});
 //# sourceMappingURL=cmdHandler.js.map

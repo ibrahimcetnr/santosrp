@@ -5,6 +5,12 @@
 import { ICommand } from '../shared/types';
 type CommandHandler = (player: PlayerMp, args: string[]) => void | Promise<void>;
 /**
+ * Belirli bir mesafe içindeki oyunculara mesaj gönderir
+ */
+export declare function broadcastInRange(player: PlayerMp, range: number, message: string): void;
+/** Mesafeye göre solan renk ile mesaj gönderir */
+export declare function broadcastFadingMessage(player: PlayerMp, maxRange: number, baseColor: string, darkColor: string, formatMsg: (color: string) => string): void;
+/**
  * Yeni bir komut kaydeder
  * @param cmd Komut bilgileri (name, syntax, minLevel, category)
  * @param handler Komut çalıştırıldığında çağrılacak fonksiyon
