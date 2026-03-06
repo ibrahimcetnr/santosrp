@@ -3,8 +3,14 @@
  * Window interface augmentation for RAGE:MP CEF browser
  */
 
+interface RageMPEvents {
+  add(eventName: string, callback: (...args: any[]) => void): void;
+}
+
 interface RageMP {
   trigger(eventName: string, ...args: any[]): void;
+  invoke(eventName: string, ...args: any[]): void;
+  events: RageMPEvents;
 }
 
 interface MinimapAnchor {
@@ -70,6 +76,15 @@ declare global {
     
     // Command System
     updateCommandList?: (commands: CommandData[]) => void;
+
+    // Chat API
+    addChatMessage?: (text: string) => void;
+    chatAPI?: {
+      push: (text: string) => void;
+      clear: () => void;
+      activate: (toggle: boolean) => void;
+      show: (toggle: boolean) => void;
+    };
   }
 }
 
