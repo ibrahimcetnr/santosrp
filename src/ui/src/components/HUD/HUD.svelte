@@ -32,44 +32,63 @@
   let fuelLevel = $state(65);
 
   // --- STATE: Chatbox Verileri ---
-  type ChatMessage = { id: number; type: 'rp' | 'ooc' | 'system' | 'ic'; html: string };
+  type ChatSegment = { text: string; color: string | null };
+  type ChatMessage = { id: number; type: 'rp' | 'ooc' | 'system' | 'ic'; segments: ChatSegment[] };
   const MAX_MESSAGES = 250;
 
-  /** !{#RRGGBB}text formatını <span style="color:"> etiketlerine dönüştürür */
-  function parseColors(raw: string): string {
-    const parts = raw.split(/(!\{#[0-9A-Fa-f]{6}\})/);
-    let color = '';
-    let out = '';
-    for (const part of parts) {
-      const m = part.match(/^!\{(#[0-9A-Fa-f]{6})\}$/);
-      if (m) { color = m[1]; }
-      else if (part) {
-        const safe = part.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        out += color ? `<span style="color:${color}">${safe}</span>` : safe;
+  /**
+   * RAGE:MP outputChatBox mesajlarını renk segmentlerine dönüştürür.
+   * RAGE, sunucudan gelen !{#RRGGBB} kodlarını client'a iletmeden önce
+   * <span style="color: #RRGGBB"> HTML etiketlerine çevirir.
+   * Bu fonksiyon o span etiketlerini parse eder.
+   * Svelte {} binding kullandığı için seg.text otomatik escape edilir — XSS yok.
+   */
+  function parseColors(raw: string): ChatSegment[] {
+    const segments: ChatSegment[] = [];
+
+    // RAGE'in ürettiği <span style="color: #RRGGBB">metin</span> formatı
+    if (raw.includes('<span')) {
+      const spanRe = /<span\s[^>]*style="[^"]*color:\s*(#[0-9A-Fa-f]{6})[^"]*"[^>]*>([\s\S]*?)<\/span>/gi;
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = spanRe.exec(raw)) !== null) {
+        if (m.index > last) segments.push({ text: raw.slice(last, m.index), color: null });
+        segments.push({ text: m[2], color: m[1] });
+        last = spanRe.lastIndex;
       }
+      if (last < raw.length) segments.push({ text: raw.slice(last), color: null });
+      if (segments.length > 0) return segments;
     }
-    return out || raw.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Doğrudan !{#RRGGBB} formatı (custom eventlar için fallback)
+    const parts = raw.split(/(!\{#[0-9A-Fa-f]{6}\})/);
+    let color: string | null = null;
+    for (const part of parts) {
+      const cm = part.match(/^!\{(#[0-9A-Fa-f]{6})\}$/);
+      if (cm) { color = cm[1]; }
+      else if (part) { segments.push({ text: part, color }); }
+    }
+    return segments.length > 0 ? segments : [{ text: raw, color: null }];
   }
 
-  /** Mesaj tipi: renk kodu yoksa 'ic', varsa 'system' olarak işaretle */
-  function detectType(raw: string): ChatMessage['type'] {
-    if (raw.startsWith('!{')) return 'system';
+  /** Mesaj tipi tespiti */
+  function detectType(_raw: string): ChatMessage['type'] {
     return 'ic';
   }
 
   let messages = $state<ChatMessage[]>([
-    { id: 1, type: 'system', html: '═══════════════════════════════════════════════' },
-    { id: 2, type: 'system', html: '🎮 SantosRP | Los Santos Roleplay Sunucusuna Hoş Geldiniz!' },
-    { id: 3, type: 'system', html: '═══════════════════════════════════════════════' },
-    { id: 4, type: 'system', html: '✅ Enterprise düzeyde performans ve güvenlik' },
-    { id: 5, type: 'system', html: '✅ Dinamik komut sistemi (Sayısal yetki tabanlı)' },
-    { id: 6, type: 'system', html: '✅ Akıllı Ghost Text (Çoklu argüman takibi)' },
-    { id: 7, type: 'system', html: '✅ Gelişmiş karakter yaratıcı (Svelte 5 Runes)' },
-    { id: 8, type: 'system', html: '═══════════════════════════════════════════════' },
-    { id: 9, type: 'system', html: '💬 Chat açmak için T tuşuna basın' },
-    { id: 10, type: 'system', html: '📝 Komut listesi için /admins yazın' },
-    { id: 11, type: 'system', html: '🎯 İyi roller dileriz!' },
-    { id: 12, type: 'system', html: '═══════════════════════════════════════════════' }
+    { id: 1,  type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] },
+    { id: 2,  type: 'system', segments: [{ text: '🎮 SantosRP | Los Santos Roleplay Sunucusuna Hoş Geldiniz!', color: '#c9a84c' }] },
+    { id: 3,  type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] },
+    { id: 4,  type: 'system', segments: [{ text: '✅ Enterprise düzeyde performans ve güvenlik', color: '#22c55e' }] },
+    { id: 5,  type: 'system', segments: [{ text: '✅ Dinamik komut sistemi (Sayısal yetki tabanlı)', color: '#22c55e' }] },
+    { id: 6,  type: 'system', segments: [{ text: '✅ Akıllı Ghost Text (Çoklu argüman takibi)', color: '#22c55e' }] },
+    { id: 7,  type: 'system', segments: [{ text: '✅ Gelişmiş karakter yaratıcı (Svelte 5 Runes)', color: '#22c55e' }] },
+    { id: 8,  type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] },
+    { id: 9,  type: 'system', segments: [{ text: '💬 Chat açmak için T tuşuna basın', color: '#94a3b8' }] },
+    { id: 10, type: 'system', segments: [{ text: '📝 Komut listesi için /admins yazın', color: '#94a3b8' }] },
+    { id: 11, type: 'system', segments: [{ text: '🎯 İyi roller dileriz!', color: '#c9a84c' }] },
+    { id: 12, type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] }
   ]);
   
   let isChatActive = $state(false);
@@ -190,9 +209,14 @@
     return 'player';
   }
 
+  // --- STATE: Chat Geçmişi ---
+  let messageHistory = $state<string[]>([]);
+  let historyIndex   = $state(-1);
+  let savedDraft     = $state('');
+
   /** Ham mesajı parse edip $state dizisine ekler (window.addChatMessage + chat:push için) */
   function addChatMessage(raw: string) {
-    pushMessage({ id: Date.now(), type: detectType(raw), html: parseColors(raw) });
+    pushMessage({ id: Date.now(), type: detectType(raw), segments: parseColors(raw) });
   }
 
   function handleChatKeydown(event: KeyboardEvent) {
@@ -211,25 +235,39 @@
       event.preventDefault();
       const msg = chatInput.trim();
       if (msg.length > 0) {
+        // Geçmişe ekle (max 20, en başa)
+        messageHistory = [msg, ...messageHistory].slice(0, 20);
+        historyIndex   = -1;
+        savedDraft     = '';
+
         if (window.mp) {
           if (msg.startsWith('/')) {
-            // Komut: "/" olmadan gönder → server'da playerCommand eventi
             window.mp.invoke('command', msg.substring(1));
           } else {
-            // Normal mesaj → server'da playerChat eventi
             window.mp.invoke('chatMessage', msg);
           }
         } else {
-          // Dev mod (tarayıcıda test)
           addChatMessage(`${charName}: ${msg}`);
         }
       }
-      chatInput = '';
+      chatInput    = '';
       isChatActive = false;
       window.mp?.invoke('focus', false);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (messageHistory.length === 0) return;
+      if (historyIndex === -1) savedDraft = chatInput; // taslağı yedekle
+      historyIndex = Math.min(historyIndex + 1, messageHistory.length - 1);
+      chatInput    = messageHistory[historyIndex];
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (historyIndex === -1) return;
+      historyIndex--;
+      chatInput = historyIndex === -1 ? savedDraft : messageHistory[historyIndex];
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      chatInput   = '';
+      chatInput    = '';
+      historyIndex = -1;
       isChatActive = false;
       window.mp?.invoke('focus', false);
     }
@@ -353,7 +391,9 @@
       <div class="chat-messages-inner">
         {#each messages as msg (msg.id)}
           <div class="chat-message {msg.type}">
-            {@html msg.html}
+            {#each msg.segments as seg}
+              {#if seg.color}<span style="color:{seg.color}">{seg.text}</span>{:else}{seg.text}{/if}
+            {/each}
           </div>
         {/each}
       </div>
@@ -377,7 +417,7 @@
         {#if filteredCommands.length > 0}
           <div class="command-row">
             {#each filteredCommands as cmd}
-              <div class="cmd-box {getCmdClass(cmd)}" onclick={() => selectCommand(cmd.name)}>
+              <div class="cmd-box {getCmdClass(cmd)}" role="button" tabindex="-1" onclick={() => selectCommand(cmd.name)} onkeydown={(e) => e.key === 'Enter' && selectCommand(cmd.name)}>
                 {cmd.name} <span class="cmd-syntax">{cmd.syntax}</span>
               </div>
             {/each}

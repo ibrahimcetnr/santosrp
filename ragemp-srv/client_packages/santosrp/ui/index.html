@@ -7,10 +7,20 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { background: transparent; overflow: hidden; }
+      /* Tab ile focus parlamasını engelle */
+      :focus { outline: none !important; }
+      * { -webkit-user-select: none; }
+      input, textarea { -webkit-user-select: text; }
     </style>
     <script type="module" crossorigin src="./index.js"></script>
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      // Tab tuşunun varsayılan davranışını (focus döngüsü) engelle
+      window.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') e.preventDefault();
+      }, true);
+    </script>
   </body>
 </html>

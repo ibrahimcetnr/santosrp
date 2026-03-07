@@ -74,6 +74,8 @@ registerCommand(
   }
 );
 
+
+
 registerCommand(
   {
     name: '/kick',
@@ -161,5 +163,46 @@ registerCommand(
       player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç modeli.');
       console.error('[VEH] Invalid model:', modelName, error);
     }
+  }
+);
+
+registerCommand(
+  {
+    name: '/spawn',
+    syntax: '[ID]',
+    description: 'Ölen oyuncuyu canlandırır',
+    permissions: { admin: 5 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 1) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /spawn [ID]');
+      player.outputChatBox('!{#94a3b8}Örnek: /spawn 5');
+      return;
+    }
+
+    const targetId = parseInt(args[0], 10);
+    if (isNaN(targetId)) {
+      player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+      return;
+    }
+
+    const target = mp.players.at(targetId);
+    if (!target || !isPlayerValid(target)) {
+      player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
+      return;
+    }
+
+    const targetName = target.characterName || target.accountUsername || target.name;
+    const adminName  = player.characterName  || player.accountUsername  || player.name;
+
+    // Oyuncuyu bulunduğu konumda canlandır ve sağlığını tam yap
+    target.spawn(target.position);
+    target.health = 100;
+    target.armour = 0;
+
+    player.outputChatBox(`!{#22c55e}[SPAWN] ${targetName} canlandırıldı.`);
+    target.outputChatBox(`!{#c9a84c}[BİLGİ] ${adminName} tarafından canlandırıldınız.`);
+
+    console.log(`[SPAWN] ${adminName} revived ${targetName}`);
   }
 );
