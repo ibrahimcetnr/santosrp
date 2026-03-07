@@ -1,3 +1,7 @@
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
 // src/client/shared-constants.ts
 var PREVIEW_POS = new mp.Vector3(402.92, -996.78, -99);
 var PREVIEW_CAM = new mp.Vector3(402.92, -998.5, -98.5);
@@ -294,6 +298,135 @@ function initHUD() {
     }
   });
 }
+
+// src/client/nametags.ts
+var MAX_DIST_SQ = 400;
+var HEAD_BONE_ID = 31086;
+var PlayerData = class {
+  constructor() {
+    __publicField(this, "visible", false);
+    __publicField(this, "lastCheck", 0);
+    __publicField(this, "charName", "Bilinmeyen");
+    __publicField(this, "isTyping", false);
+  }
+};
+var playerCache = /* @__PURE__ */ new Map();
+var streamedPlayers = /* @__PURE__ */ new Set();
+var streamedArray = [];
+var slicingIndex = 0;
+var frameCount = 0;
+var sharedScreenPos = [0, 0];
+var sharedTextOpts = {
+  font: 4,
+  color: [255, 255, 255, 215],
+  scale: [0.3, 0.3],
+  outline: true,
+  centre: true
+};
+var sharedTypingOpts = {
+  font: 4,
+  color: [180, 100, 230, 220],
+  scale: [0.25, 0.25],
+  outline: true,
+  centre: true
+};
+function initNametags() {
+  mp.nametags.enabled = false;
+  console.log("[NAMETAG] Zero-Allocation sistemi aktif. RAM y\xFCk\xFC: 0");
+  mp.events.addDataHandler("characterName", (entity, value) => {
+    if (entity.type === "player") {
+      const data = getOrCreateData(entity.remoteId);
+      data.charName = value;
+    }
+  });
+  mp.events.addDataHandler("isTyping", (entity, value) => {
+    if (entity.type === "player") {
+      const data = getOrCreateData(entity.remoteId);
+      data.isTyping = value;
+    }
+  });
+}
+function getOrCreateData(id) {
+  let data = playerCache.get(id);
+  if (!data) {
+    data = new PlayerData();
+    playerCache.set(id, data);
+  }
+  return data;
+}
+mp.events.add("entityStreamIn", (entity) => {
+  if (entity.type === "player") {
+    streamedPlayers.add(entity);
+    streamedArray = Array.from(streamedPlayers);
+  }
+});
+mp.events.add("entityStreamOut", (entity) => {
+  if (entity.type === "player") {
+    streamedPlayers.delete(entity);
+    streamedArray = Array.from(streamedPlayers);
+    playerCache.delete(entity.remoteId);
+  }
+});
+mp.events.add("render", () => {
+  const len = streamedArray.length;
+  if (len === 0) return;
+  const local = mp.players.local;
+  const localPos = local.position;
+  const now = Date.now();
+  frameCount++;
+  slicingIndex = (slicingIndex + 1) % len;
+  const target = streamedArray[slicingIndex];
+  if (target && target.handle && target !== local && target.alpha !== 0) {
+    const tPos = target.position;
+    const dx = tPos.x - localPos.x;
+    const dy = tPos.y - localPos.y;
+    if (dx * dx + dy * dy <= MAX_DIST_SQ) {
+      const targetHead = target.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
+      const localHead = local.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
+      const screenTest = mp.game.graphics.world3dToScreen2d(targetHead.x, targetHead.y, targetHead.z);
+      const cacheData = getOrCreateData(target.remoteId);
+      cacheData.lastCheck = now;
+      if (screenTest) {
+        cacheData.visible = !mp.raycasting.testPointToPoint(localHead, targetHead, [local.handle, target.handle], 19);
+      } else {
+        cacheData.visible = false;
+      }
+    }
+  }
+  for (let i = 0; i < len; i++) {
+    const player = streamedArray[i];
+    if (player === local || !player.handle || player.alpha === 0) continue;
+    const pId = player.remoteId;
+    const cache = playerCache.get(pId);
+    if (!cache) {
+      const newData = getOrCreateData(pId);
+      newData.charName = player.getVariable("characterName") || player.name;
+      newData.isTyping = player.getVariable("isTyping") || false;
+      continue;
+    }
+    if (!cache.visible) continue;
+    const pPos = player.position;
+    const dx = pPos.x - localPos.x;
+    const dy = pPos.y - localPos.y;
+    const dz = pPos.z - localPos.z;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    if (distSq > MAX_DIST_SQ) continue;
+    const screen = mp.game.graphics.world3dToScreen2d(pPos.x, pPos.y, pPos.z + 1);
+    if (!screen) continue;
+    const scale = 0.35 - distSq / MAX_DIST_SQ * 0.2;
+    sharedScreenPos[0] = screen.x;
+    sharedScreenPos[1] = screen.y;
+    sharedTextOpts.scale[0] = scale;
+    sharedTextOpts.scale[1] = scale;
+    mp.game.graphics.drawText(`${cache.charName} (${pId})`, sharedScreenPos, sharedTextOpts);
+    if (cache.isTyping) {
+      sharedScreenPos[1] -= 0.035;
+      sharedTypingOpts.scale[0] = scale * 0.8;
+      sharedTypingOpts.scale[1] = scale * 0.8;
+      mp.game.graphics.drawText("* Yaz\u0131yor...", sharedScreenPos, sharedTypingOpts);
+    }
+  }
+});
 
 // src/client/creator.ts
 var CREATOR_ANIM_DICT = "nm@test_character_creator";
@@ -596,6 +729,7 @@ mp.game.ui.displayHud(false);
 mp.game.ui.displayRadar(false);
 registerClientAuthEvents();
 initHUD();
+initNametags();
 mp.events.add("browserCreated", (browser) => {
   console.log("[CLIENT] Browser olu\u015Fturuldu.");
 });

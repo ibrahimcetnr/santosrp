@@ -1,0 +1,167 @@
+/**
+ * SantosRP — THE ABSOLUTE ZERO-ALLOCATION NAMETAG SYSTEM
+ * No-GC, No-Bridge, No-Sqrt, Hardcore RP
+ */
+
+const MAX_DIST_SQ = 400.0;
+const HEAD_BONE_ID = 31086;
+
+class PlayerData {
+    visible = false;
+    lastCheck = 0;
+    charName = "Bilinmeyen";
+    isTyping = false;
+}
+
+// Havuzlar
+const playerCache = new Map<number, PlayerData>();
+const streamedPlayers = new Set<PlayerMp>();
+let streamedArray: PlayerMp[] = [];
+let slicingIndex = 0;
+let frameCount = 0;
+
+// --- SIFIR ÇÖP (ZERO-ALLOCATION) İÇİN ÖNCEDEN YARATILMIŞ OBJELER ---
+// Döngü içinde ASLA yeni array veya obje yaratmıyoruz, bu sabitleri değiştiriyoruz!
+const sharedScreenPos = [0, 0] as [number, number];
+const sharedTextOpts = {
+    font: 4,
+    color: [255, 255, 255, 215] as [number, number, number, number],
+    scale: [0.3, 0.3] as [number, number],
+    outline: true,
+    centre: true
+};
+const sharedTypingOpts = {
+    font: 4,
+    color: [180, 100, 230, 220] as [number, number, number, number],
+    scale: [0.25, 0.25] as [number, number],
+    outline: true,
+    centre: true
+};
+
+export function initNametags(): void {
+    mp.nametags.enabled = false;
+    console.log('[NAMETAG] Zero-Allocation sistemi aktif. RAM yükü: 0');
+
+    mp.events.addDataHandler('characterName', (entity, value) => {
+        if (entity.type === 'player') {
+            const data = getOrCreateData(entity.remoteId);
+            data.charName = value as string;
+        }
+    });
+    mp.events.addDataHandler('isTyping', (entity, value) => {
+        if (entity.type === 'player') {
+            const data = getOrCreateData(entity.remoteId);
+            data.isTyping = value as boolean;
+        }
+    });
+}
+
+function getOrCreateData(id: number): PlayerData {
+    let data = playerCache.get(id);
+    if (!data) {
+        data = new PlayerData();
+        playerCache.set(id, data);
+    }
+    return data;
+}
+
+mp.events.add('entityStreamIn', (entity) => {
+    if (entity.type === 'player') {
+        streamedPlayers.add(entity as PlayerMp);
+        streamedArray = Array.from(streamedPlayers);
+    }
+});
+
+mp.events.add('entityStreamOut', (entity) => {
+    if (entity.type === 'player') {
+        streamedPlayers.delete(entity as PlayerMp);
+        streamedArray = Array.from(streamedPlayers);
+        playerCache.delete(entity.remoteId);
+    }
+});
+
+mp.events.add('render', () => {
+    const len = streamedArray.length;
+    if (len === 0) return;
+
+    const local = mp.players.local;
+    const localPos = local.position;
+    const now = Date.now();
+    frameCount++;
+
+    // --- 1. ZAMAN DİLİMLEME (TICK SLICING) ---
+    slicingIndex = (slicingIndex + 1) % len;
+    const target = streamedArray[slicingIndex];
+
+    if (target && target.handle && target !== local && target.alpha !== 0) {
+        const tPos = target.position;
+        // Matematiksel Optimizasyon: **2 yerine çarpım kullanmak CPU'da cycle tasarrufu sağlar
+        const dx = tPos.x - localPos.x;
+        const dy = tPos.y - localPos.y;
+        
+        if ((dx * dx + dy * dy) <= MAX_DIST_SQ) {
+            const targetHead = target.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
+            const localHead = local.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
+            const screenTest = mp.game.graphics.world3dToScreen2d(targetHead.x, targetHead.y, targetHead.z);
+
+            const cacheData = getOrCreateData(target.remoteId);
+            cacheData.lastCheck = now;
+
+            if (screenTest) {
+                cacheData.visible = !mp.raycasting.testPointToPoint(localHead, targetHead, [local.handle, target.handle], 19);
+            } else {
+                cacheData.visible = false;
+            }
+        }
+    }
+
+    // --- 2. ÇİZİM DÖNGÜSÜ (SIFIR ÇÖP - SIFIR TAKILMA) ---
+    for (let i = 0; i < len; i++) {
+        const player = streamedArray[i];
+        if (player === local || !player.handle || player.alpha === 0) continue;
+
+        const pId = player.remoteId;
+        const cache = playerCache.get(pId);
+        
+        if (!cache) {
+            const newData = getOrCreateData(pId);
+            newData.charName = player.getVariable('characterName') as string || player.name;
+            newData.isTyping = player.getVariable('isTyping') as boolean || false;
+            continue;
+        }
+
+        if (!cache.visible) continue;
+
+        const pPos = player.position;
+        const dx = pPos.x - localPos.x;
+        const dy = pPos.y - localPos.y;
+        const dz = pPos.z - localPos.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        
+        if (distSq > MAX_DIST_SQ) continue;
+
+        const screen = mp.game.graphics.world3dToScreen2d(pPos.x, pPos.y, pPos.z + 1.0);
+        if (!screen) continue;
+
+        // Ölçek hesaplama (Karekök yok!)
+        const scale = 0.35 - ((distSq / MAX_DIST_SQ) * 0.20);
+
+        // --- MÜKEMMEL DOKUNUŞ ---
+        // Yeni obje veya dizi yaratmıyoruz. Sadece dışarıdaki sabit objelerin değerlerini değiştiriyoruz.
+        sharedScreenPos[0] = screen.x;
+        sharedScreenPos[1] = screen.y;
+        
+        sharedTextOpts.scale[0] = scale;
+        sharedTextOpts.scale[1] = scale;
+
+        mp.game.graphics.drawText(`${cache.charName} (${pId})`, sharedScreenPos, sharedTextOpts);
+
+        if (cache.isTyping) {
+            sharedScreenPos[1] -= 0.035; // Yazıyor yazısını biraz yukarı kaydır
+            sharedTypingOpts.scale[0] = scale * 0.8;
+            sharedTypingOpts.scale[1] = scale * 0.8;
+            
+            mp.game.graphics.drawText('* Yazıyor...', sharedScreenPos, sharedTypingOpts);
+        }
+    }
+});

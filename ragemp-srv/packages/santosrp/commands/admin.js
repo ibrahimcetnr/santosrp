@@ -183,4 +183,38 @@ const safeEvent_1 = require("../utils/safeEvent");
     target.outputChatBox(`!{#c9a84c}[BİLGİ] ${adminName} tarafından canlandırıldınız.`);
     console.log(`[SPAWN] ${adminName} revived ${targetName}`);
 });
+(0, cmdHandler_1.registerCommand)({
+    name: '/tp',
+    syntax: '[ID]',
+    description: 'Hedef oyuncunun konumuna ışınlanır',
+    permissions: { admin: 3 },
+}, (player, args) => {
+    if (args.length < 1) {
+        player.outputChatBox('!{#fbbf24}[KULLANIM] /tp [ID]');
+        player.outputChatBox('!{#94a3b8}Örnek: /tp 5');
+        return;
+    }
+    const targetId = parseInt(args[0], 10);
+    if (isNaN(targetId)) {
+        player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+        return;
+    }
+    const target = mp.players.at(targetId);
+    if (!target || !(0, safeEvent_1.isPlayerValid)(target)) {
+        player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
+        return;
+    }
+    if (target === player) {
+        player.outputChatBox('!{#ef4444}[HATA] Kendinize teleport olamazsınız.');
+        return;
+    }
+    const targetName = target.characterName || target.accountUsername || target.name;
+    const adminName = player.characterName || player.accountUsername || player.name;
+    const pos = target.position;
+    // Hafifçe yanına ışınla (üst üste binmesin)
+    player.position = new mp.Vector3(pos.x + 1.5, pos.y, pos.z);
+    player.heading = target.heading;
+    player.outputChatBox(`!{#22c55e}[TP] ${targetName} konumuna ışınlandınız.`);
+    console.log(`[TP] ${adminName} → ${targetName} (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+});
 //# sourceMappingURL=admin.js.map
