@@ -12,6 +12,7 @@ Object.defineProperty(exports, "queueCharacterSave", { enumerable: true, get: fu
 const safeEvent_1 = require("./utils/safeEvent");
 const db_1 = require("./db");
 const cmdHandler_1 = require("./cmdHandler");
+const payday_1 = require("./payday");
 require("../shared/types"); // PlayerMp augmentation
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
 // safeEvent dışında kalan her async kod parçası için güvenlik ağı.
@@ -41,6 +42,8 @@ setInterval(() => {
 (0, auth_1.registerAuthEvents)();
 // Komut sistemini başlat
 (0, cmdHandler_1.initCommandSystem)();
+// Payday / progression sistemini başlat
+(0, payday_1.startPayday)();
 (0, safeEvent_1.safeEvent)('playerDisconnect', async (player, exitType, reason) => {
     // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.
     // try-catch ile güvenli okuma yapıyoruz.
@@ -59,10 +62,9 @@ setInterval(() => {
     }
     if (!charId)
         return;
-    // Disconnect toplu yığılmasını (Thundering Herd) önlemek için debounced flush.
-    // 1000 oyuncu aynı anda koptuğunda 1000 paralel UPDATE yerine
-    // 500ms içinde gelenleri tek bir chunk'lı batch'e toplar.
-    (0, save_queue_1.requestFlush)(charId);
+    // flushCharacterSync: veriyi debounce bekletmeden anında DB'ye yazar.
+    // player nesnesi geçersizleşmeden önce tamamlanması garanti altındadır.
+    await (0, save_queue_1.flushCharacterSync)(charId);
 });
 // Oyun içi para/pozisyon güncellemeleri kuyruğa alınır (otomatik 30s'de bir kayıt)
 // Kullanım örneği: queueCharacterSave({ characterId: 1, money: 5000, position: player.position })

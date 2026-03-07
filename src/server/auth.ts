@@ -337,9 +337,6 @@ export function registerAuthEvents(): void {
     }
 
     player.call('client:hideLogin');
-    player.spawn(spawnPos);
-    player.health = 100;
-    player.armour = 0;
     player.dimension = 0;
 
     const isMale = charRow.gender !== 1;
@@ -353,13 +350,18 @@ export function registerAuthEvents(): void {
           : charRow.char_data;
         applyPlayerAppearance(player, appearance);
       } catch (err) {
-        console.error(`[AUTH] char_data parse hatas\u0131 (charId=${charId}):`, err);
+        console.error(`[AUTH] char_data parse hatası (charId=${charId}):`, err);
       }
     }
+
+    player.spawn(spawnPos);
+    player.health = 100;
+    player.armour = 0;
 
     // HUD'u başlat: karakter adı, RAGE player ID, para
     const charName = `${charRow.first_name} ${charRow.last_name}`;
     player.characterName = charName;
+    player.setVariable('realName', charName);
     player.call('client:startHUD', [charName, player.id, charRow.money]);
 
     // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
@@ -402,10 +404,6 @@ export function registerAuthEvents(): void {
     await query('UPDATE characters SET created = 1, char_data = $1 WHERE id = $2', [appearanceStr, charId]);
     player.characterId = charId;
     player.call('client:hideLogin');
-
-    player.spawn(new mp.Vector3(-2290.4, 281.3, 169.6));
-    player.health = 100;
-    player.armour = 0;
     player.dimension = 0;
 
     let isFemale = false;
@@ -419,6 +417,10 @@ export function registerAuthEvents(): void {
       player.model = mp.joaat('mp_m_freemode_01');
     }
 
+    player.spawn(new mp.Vector3(-2290.4, 281.3, 169.6));
+    player.health = 100;
+    player.armour = 0;
+
     // HUD'u başlat: karakter adını çek
     const charInfoRes = await query(
       'SELECT first_name, last_name, money FROM characters WHERE id = $1',
@@ -428,6 +430,7 @@ export function registerAuthEvents(): void {
       const ci = charInfoRes.rows[0];
       const charName = `${ci.first_name} ${ci.last_name}`;
       player.characterName = charName;
+      player.setVariable('realName', charName);
       player.call('client:startHUD', [charName, player.id, ci.money]);
 
       // Anlık sunucu saatini hemen gönder (30s interval beklenmez)

@@ -333,7 +333,7 @@ var sharedTypingOpts = {
 function initNametags() {
   mp.nametags.enabled = false;
   console.log("[NAMETAG] Zero-Allocation sistemi aktif. RAM y\xFCk\xFC: 0");
-  mp.events.addDataHandler("characterName", (entity, value) => {
+  mp.events.addDataHandler("realName", (entity, value) => {
     if (entity.type === "player") {
       const data = getOrCreateData(entity.remoteId);
       data.charName = value;

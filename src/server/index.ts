@@ -4,7 +4,7 @@
  */
 import { registerAuthEvents } from './auth';
 import { initBcryptPool, destroyBcryptPool } from './bcrypt-pool';
-import { startSaveQueue, stopSaveQueue, flushAll, requestFlush, queueCharacterSave } from './save-queue';
+import { startSaveQueue, stopSaveQueue, flushAll, flushCharacterSync, queueCharacterSave } from './save-queue';
 import { safeEvent, isPlayerValid } from './utils/safeEvent';
 import { disconnectDB } from './db';
 import { initCommandSystem, getAvailableCommands } from './cmdHandler';
@@ -65,10 +65,9 @@ safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason:
   }
   if (!charId) return;
 
-  // Disconnect toplu yığılmasını (Thundering Herd) önlemek için debounced flush.
-  // 1000 oyuncu aynı anda koptuğunda 1000 paralel UPDATE yerine
-  // 500ms içinde gelenleri tek bir chunk'lı batch'e toplar.
-  requestFlush(charId);
+  // flushCharacterSync: veriyi debounce bekletmeden anında DB'ye yazar.
+  // player nesnesi geçersizleşmeden önce tamamlanması garanti altındadır.
+  await flushCharacterSync(charId);
 });
 
 // Oyun içi para/pozisyon güncellemeleri kuyruğa alınır (otomatik 30s'de bir kayıt)

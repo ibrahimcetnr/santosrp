@@ -8,72 +8,77 @@
 
   let { onPlay, characters = [] }: Props = $props();
 
-  // 3 slota tamamla
-  let displayChars = $derived.by(() => {
-    const arr = [...characters];
-    while (arr.length < 3) {
-      arr.push({
-        id: -1,
-        name: 'Boş Slot',
-        age: 0,
-        model: 'mp_m_freemode_01',
-        created: 0
-      });
-    }
-    return arr;
-  });
-
+  // Sadece veritabanından gelen GERÇEK karakterleri listele
+  let displayChars = $derived(characters);
   let currentIndex = $state(0);
 
   let currentChar = $derived(displayChars[currentIndex]);
 
   function nextChar() {
+    if (displayChars.length <= 1) return;
     currentIndex = (currentIndex + 1) % displayChars.length;
     updatePed();
   }
 
   function prevChar() {
+    if (displayChars.length <= 1) return;
     currentIndex = (currentIndex - 1 + displayChars.length) % displayChars.length;
     updatePed();
   }
 
   function updatePed() {
-    const c = displayChars[currentIndex];
+    if (!currentChar) return;
     if (typeof (window as any).mp !== 'undefined') {
-      (window as any).mp.trigger('client:previewCharacter', c.model, (c as any).charData ?? null);
+      (window as any).mp.trigger('client:previewCharacter', currentChar.model, (currentChar as any).charData ?? null);
     }
   }
 
   function handlePlay() {
+    if (!currentChar) return;
+
+    // Karakter onaylanmış ama yüzü yapılmamışsa (created === 0)
     if (currentChar.created === 0) {
-      onPlay(currentChar);
+      onPlay(currentChar); // Gerçek ID'si ile CharacterCreator'a geçer
       return;
     }
+    // Karakter zaten yaratılmışsa
     if (typeof (window as any).mp !== 'undefined') {
-      (window as any).mp.trigger('client:playCharacter', displayChars[currentIndex].id);
+      (window as any).mp.trigger('client:playCharacter', currentChar.id);
     }
-    onPlay(currentChar);
+    onPlay(currentChar); // HUD'a geçer
   }
 
   onMount(() => {
-    updatePed();
+    if (displayChars.length > 0) {
+      updatePed();
+    }
   });
 </script>
 
 <div class="char-container">
   <!-- Sol Ok -->
-  <button class="nav-btn left" onclick={prevChar}>&#10094;</button>
+  {#if displayChars.length > 1}
+    <button class="nav-btn left" onclick={prevChar}>&#10094;</button>
+  {:else}
+    <div class="nav-placeholder"></div>
+  {/if}
 
   <!-- Ortadaki Bilgi ve Hover Kutusu -->
   <div class="char-info">
-    <h2>{currentChar.name.replace(/_/g, ' ')}</h2>
-    
+    <h2>{currentChar?.name.replace(/_/g, ' ') ?? ''}</h2>
+
     <div class="glow-box"></div>
-    <button class="play-btn" onclick={handlePlay}>{currentChar.created === 0 ? 'YARAT' : 'OYNA'}</button>
+    <button class="play-btn" onclick={handlePlay}>
+      {currentChar?.created === 0 ? 'GÖRÜNÜMÜNÜ OLUŞTUR' : 'OYNA'}
+    </button>
   </div>
 
   <!-- Sağ Ok -->
-  <button class="nav-btn right" onclick={nextChar}>&#10095;</button>
+  {#if displayChars.length > 1}
+    <button class="nav-btn right" onclick={nextChar}>&#10095;</button>
+  {:else}
+    <div class="nav-placeholder"></div>
+  {/if}
 </div>
 
 <style>
@@ -102,6 +107,12 @@
     cursor: pointer;
     transition: all 0.3s;
     box-shadow: 0 0 15px rgba(201, 168, 76, 0.2);
+  }
+
+  .nav-placeholder {
+    width: 60px;
+    height: 60px;
+    pointer-events: none;
   }
 
   .nav-btn:hover {

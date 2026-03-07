@@ -27,6 +27,16 @@ const saveQueue = new Map<number, CharSaveData>();
 const accountSaveQueue = new Map<number, AccountSaveData>();
 let saveTimer: ReturnType<typeof setInterval> | null = null;
 
+// ─── Numeric Delta Queues (Atomic Balance) ───────────────────────────────────
+// Mutlak değer yerine birikimli delta saklar.
+// DB yazımında `SET money = money + $delta` kullanılır → paralel güncellemeler güvenli.
+const charNumericDeltaQueue    = new Map<number, { money?: number; bank?: number }>();
+const accountNumericDeltaQueue = new Map<number, { xp?: number }>();
+
+// ─── Circuit Breaker ──────────────────────────────────────────────────────────
+let consecutiveDbErrors = 0;
+const CIRCUIT_BREAKER_THRESHOLD = 5;
+
 /**
  * Kuyruğa karakter verisi ekle (üst üste gelirse merge eder)
  */
@@ -52,6 +62,36 @@ export function queueAccountSave(data: AccountSaveData): void {
 }
 
 /**
+ * Kuyruğa karakter sayısal delta ekle (+=).
+ * Aynı karaktere birden fazla para/banka güncellemesi geldiğinde
+ * değerler birikerek doğru toplam hesaplanır (üst üste yazma olmaz).
+ * DB yazımında `SET money = money + $delta` kullanılır.
+ */
+export function updateNumericData(
+  characterId: number,
+  delta: { money?: number; bank?: number }
+): void {
+  const existing = charNumericDeltaQueue.get(characterId) ?? {};
+  charNumericDeltaQueue.set(characterId, {
+    money: (existing.money ?? 0) + (delta.money ?? 0),
+    bank:  (existing.bank  ?? 0) + (delta.bank  ?? 0),
+  });
+}
+
+/**
+ * Hesap XP delta ekle (+=).
+ */
+export function updateAccountNumericData(
+  accountId: number,
+  delta: { xp?: number }
+): void {
+  const existing = accountNumericDeltaQueue.get(accountId) ?? {};
+  accountNumericDeltaQueue.set(accountId, {
+    xp: (existing.xp ?? 0) + (delta.xp ?? 0),
+  });
+}
+
+/**
  * Belirli bir karakteri kuyruktan anlık kaydet (kritik durumlar için — tek oyuncu).
  * Thundering Herd senaryosunda (1000 disconnect) requestFlush kullanın.
  */
@@ -61,6 +101,28 @@ export async function flushCharacter(characterId: number): Promise<void> {
 
   saveQueue.delete(characterId);
   await writeCharacterToDB(data);
+}
+
+/**
+ * Disconnect'te anlık, garantili kayıt (Instant Disconnect Save).
+ * requestFlush'un 500ms debounce penceresinin aksine veriyi hemen yazar;
+ * süreç kapanmadan veya pointer geçersiz olmadan önce DB'ye ulaşır.
+ * pendingFlushIds'den de temizler — debounce kuyruğunda çift yazma olmaz.
+ */
+export async function flushCharacterSync(characterId: number): Promise<void> {
+  // Varsa bekleyen debounce isteğini iptal et
+  pendingFlushIds.delete(characterId);
+
+  const data  = saveQueue.get(characterId);
+  const delta = charNumericDeltaQueue.get(characterId);
+
+  if (data)  saveQueue.delete(characterId);
+  if (delta) charNumericDeltaQueue.delete(characterId);
+
+  await Promise.allSettled([
+    data  ? writeCharacterToDB(data)                           : Promise.resolve(),
+    delta ? writeCharacterNumericDeltaToDB(characterId, delta) : Promise.resolve(),
+  ]);
 }
 
 // ─── Debounced Toplu Flush (Thundering Herd Koruması) ────────────────────────
@@ -142,11 +204,35 @@ export async function flushAll(): Promise<void> {
   console.log(`[SAVE-QUEUE] Toplu kaydetme başladı: ${entries.length} karakter`);
   await flushInChunks(entries);
 
+  // Numeric delta queue'ları temizle
+  const charDeltaEntries = Array.from(charNumericDeltaQueue.entries());
+  charNumericDeltaQueue.clear();
+  if (charDeltaEntries.length > 0) {
+    await Promise.allSettled(
+      charDeltaEntries.map(([id, delta]) => writeCharacterNumericDeltaToDB(id, delta))
+    );
+  }
+
   const accountEntries = Array.from(accountSaveQueue.values());
   accountSaveQueue.clear();
   if (accountEntries.length > 0) {
     console.log(`[SAVE-QUEUE] Hesap kaydetme başladı: ${accountEntries.length} hesap`);
     await Promise.allSettled(accountEntries.map(writeAccountToDB));
+  }
+
+  // Account numeric delta queue'ları temizle (xp)
+  const accountDeltaEntries = Array.from(accountNumericDeltaQueue.entries());
+  accountNumericDeltaQueue.clear();
+  if (accountDeltaEntries.length > 0) {
+    await Promise.allSettled(
+      accountDeltaEntries.map(([id, delta]) =>
+        query(
+          `UPDATE accounts SET xp = xp + $1 WHERE id = $2`,
+          [delta.xp ?? 0, id]
+        ).then(() => { consecutiveDbErrors = 0; })
+         .catch(err => console.error(`[SAVE-QUEUE] Account xp delta ${id} kaydedilemedi:`, err))
+      )
+    );
   }
 
   console.log(`[SAVE-QUEUE] Toplu kaydetme tamamlandı.`);
@@ -174,6 +260,7 @@ async function writeCharacterToDB(data: CharSaveData, retries = 2): Promise<void
       const values = Object.values(updateData);
       const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
       await query(`UPDATE characters SET ${setClause} WHERE id = $${keys.length + 1}`, [...values, data.characterId]);
+      consecutiveDbErrors = 0; // Başarılı — hata sayıcısını sıfırla
       return; // Başarılı — döngüden çık
     } catch (err) {
       if (attempt === retries) {
@@ -182,6 +269,14 @@ async function writeCharacterToDB(data: CharSaveData, retries = 2): Promise<void
           `[SAVE-QUEUE] Karakter ${data.characterId} ${retries + 1} denemede kaydedilemedi:`,
           err
         );
+        consecutiveDbErrors++;
+        if (consecutiveDbErrors >= CIRCUIT_BREAKER_THRESHOLD) {
+          console.error(
+            `[SAVE-QUEUE] CRITICAL: ${consecutiveDbErrors} ardışık DB hatası — Circuit Breaker devreye girdi! Save queue durduruluyor.`
+          );
+          stopSaveQueue();
+          consecutiveDbErrors = 0;
+        }
       } else {
         // Exponential backoff: 200ms, 400ms...
         const delay = 200 * (attempt + 1);
@@ -217,6 +312,44 @@ async function writeAccountToDB(data: AccountSaveData): Promise<void> {
 }
 
 /**
+ * Sayısal delta değerlerini DB'ye ekle (+=).
+ * `SET money = money + $1` şeklinde günceller — mutlak değer üzerine yazmaz.
+ * Paralel güncellemelerde race condition'dan korur.
+ */
+async function writeCharacterNumericDeltaToDB(
+  characterId: number,
+  delta: { money?: number; bank?: number }
+): Promise<void> {
+  const parts: string[] = [];
+  const values: number[] = [];
+  let idx = 1;
+
+  if (delta.money) { parts.push(`money = money + $${idx++}`); values.push(delta.money); }
+  if (delta.bank)  { parts.push(`bank  = bank  + $${idx++}`); values.push(delta.bank);  }
+
+  if (parts.length === 0) return;
+  values.push(characterId);
+
+  try {
+    await query(
+      `UPDATE characters SET ${parts.join(', ')} WHERE id = $${idx}`,
+      values
+    );
+    consecutiveDbErrors = 0;
+  } catch (err) {
+    consecutiveDbErrors++;
+    console.error(`[SAVE-QUEUE] Numeric delta karakter ${characterId} kaydedilemedi:`, err);
+    if (consecutiveDbErrors >= CIRCUIT_BREAKER_THRESHOLD) {
+      console.error(
+        `[SAVE-QUEUE] CRITICAL: ${consecutiveDbErrors} ardışık DB hatası — Circuit Breaker devreye girdi! Save queue durduruluyor.`
+      );
+      stopSaveQueue();
+      consecutiveDbErrors = 0;
+    }
+  }
+}
+
+/**
  * Periyodik save döngüsünü başlat
  */
 export function startSaveQueue(): void {
@@ -235,6 +368,19 @@ export function startSaveQueue(): void {
         await flushInChunks(charEntries);
       } catch (err) {
         console.error('[SAVE-QUEUE] Periyodik karakter flush hatası:', err);
+      }
+    }
+
+    // Periyodik numeric delta flush
+    const charDeltaEntries = Array.from(charNumericDeltaQueue.entries());
+    if (charDeltaEntries.length > 0) {
+      charNumericDeltaQueue.clear();
+      try {
+        await Promise.allSettled(
+          charDeltaEntries.map(([id, delta]) => writeCharacterNumericDeltaToDB(id, delta))
+        );
+      } catch (err) {
+        console.error('[SAVE-QUEUE] Periyodik numeric delta flush hatası:', err);
       }
     }
 

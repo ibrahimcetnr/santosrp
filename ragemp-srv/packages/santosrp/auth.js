@@ -49,6 +49,7 @@ const bcrypt_pool_1 = require("./bcrypt-pool");
 const db_1 = require("./db");
 const cache_1 = require("./cache");
 const safeEvent_1 = require("./utils/safeEvent");
+const appearance_1 = require("./utils/appearance");
 require("../shared/types"); // PlayerMp augmentation (global declare)
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
 const loginAttempts = new Map();
@@ -299,7 +300,7 @@ function registerAuthEvents() {
         if (!accountId)
             return; // Giriş yapmamış
         // Yetkilendirme + karakter verisi
-        const charRes = await (0, db_1.query)('SELECT id, first_name, last_name, money, gender, position FROM characters WHERE id = $1 AND account_id = $2', [charId, accountId]);
+        const charRes = await (0, db_1.query)('SELECT id, first_name, last_name, money, gender, position, char_data FROM characters WHERE id = $1 AND account_id = $2', [charId, accountId]);
         if (!(0, safeEvent_1.isPlayerValid)(player))
             return;
         if (charRes.rows.length === 0) {
@@ -325,15 +326,28 @@ function registerAuthEvents() {
             }
         }
         player.call('client:hideLogin');
-        player.spawn(spawnPos);
-        player.health = 100;
-        player.armour = 0;
         player.dimension = 0;
         const isMale = charRow.gender !== 1;
         player.model = mp.joaat(isMale ? 'mp_m_freemode_01' : 'mp_f_freemode_01');
+        // Kaydedilmiş görünümü tüm istemcilere sunucu taraflı senkronize et
+        if (charRow.char_data) {
+            try {
+                const appearance = typeof charRow.char_data === 'string'
+                    ? JSON.parse(charRow.char_data)
+                    : charRow.char_data;
+                (0, appearance_1.applyPlayerAppearance)(player, appearance);
+            }
+            catch (err) {
+                console.error(`[AUTH] char_data parse hatası (charId=${charId}):`, err);
+            }
+        }
+        player.spawn(spawnPos);
+        player.health = 100;
+        player.armour = 0;
         // HUD'u başlat: karakter adı, RAGE player ID, para
         const charName = `${charRow.first_name} ${charRow.last_name}`;
         player.characterName = charName;
+        player.setVariable('realName', charName);
         player.call('client:startHUD', [charName, player.id, charRow.money]);
         // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
         const _now = new Date();
@@ -374,26 +388,28 @@ function registerAuthEvents() {
         await (0, db_1.query)('UPDATE characters SET created = 1, char_data = $1 WHERE id = $2', [appearanceStr, charId]);
         player.characterId = charId;
         player.call('client:hideLogin');
-        player.spawn(new mp.Vector3(-2290.4, 281.3, 169.6));
-        player.health = 100;
-        player.armour = 0;
         player.dimension = 0;
         let isFemale = false;
         try {
             const appearance = JSON.parse(appearanceStr);
             isFemale = appearance.gender === 1;
             player.model = mp.joaat(isFemale ? 'mp_f_freemode_01' : 'mp_m_freemode_01');
-            player.call('client:applyAppearance', [appearanceStr]);
+            // Sunucu taraflı senkronizasyon — tüm istemcilere otomatik gönderilir
+            (0, appearance_1.applyPlayerAppearance)(player, appearance);
         }
         catch {
             player.model = mp.joaat('mp_m_freemode_01');
         }
+        player.spawn(new mp.Vector3(-2290.4, 281.3, 169.6));
+        player.health = 100;
+        player.armour = 0;
         // HUD'u başlat: karakter adını çek
         const charInfoRes = await (0, db_1.query)('SELECT first_name, last_name, money FROM characters WHERE id = $1', [charId]);
         if ((0, safeEvent_1.isPlayerValid)(player) && charInfoRes.rows.length > 0) {
             const ci = charInfoRes.rows[0];
             const charName = `${ci.first_name} ${ci.last_name}`;
             player.characterName = charName;
+            player.setVariable('realName', charName);
             player.call('client:startHUD', [charName, player.id, ci.money]);
             // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
             const _now2 = new Date();
