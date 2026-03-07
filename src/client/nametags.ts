@@ -42,7 +42,7 @@ export function initNametags(): void {
     mp.nametags.enabled = false;
     console.log('[NAMETAG] Zero-Allocation sistemi aktif. RAM yükü: 0');
 
-    mp.events.addDataHandler('realName', (entity, value) => {
+    mp.events.addDataHandler('characterName', (entity, value) => {
         if (entity.type === 'player') {
             const data = getOrCreateData(entity.remoteId);
             data.charName = value as string;
@@ -140,11 +140,25 @@ mp.events.add('render', () => {
         
         if (distSq > MAX_DIST_SQ) continue;
 
-        const screen = mp.game.graphics.world3dToScreen2d(pPos.x, pPos.y, pPos.z + 1.0);
+        // 1. Dinamik Kafa Takibi ve Yükseklik Ayarı
+        let drawX = pPos.x;
+        let drawY = pPos.y;
+        let drawZ = pPos.z + 1.2; // Fallback yüksekliği
+        try {
+            const boneCoords = player.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
+            if (boneCoords && boneCoords.z !== 0) {
+                drawX = boneCoords.x;
+                drawY = boneCoords.y;
+                // Kafanın yüksekliği (Eskiden 0.45'ti, şimdi +0.55 yaparak daha yukarı kaldırdık)
+                drawZ = boneCoords.z + 0.50;
+            }
+        } catch (e) { }
+        const screen = mp.game.graphics.world3dToScreen2d(drawX, drawY, drawZ);
         if (!screen) continue;
 
-        // Ölçek hesaplama (Karekök yok!)
-        const scale = 0.35 - ((distSq / MAX_DIST_SQ) * 0.20);
+        // 2. Nametag Boyutunu (Scale) Büyütme
+        // Eskiden taban boyut 0.35'ti, şimdi 0.42 yaparak daha büyük ve okunaklı hale getirdik
+        const scale = 0.42 - ((distSq / MAX_DIST_SQ) * 0.20);
 
         // --- MÜKEMMEL DOKUNUŞ ---
         // Yeni obje veya dizi yaratmıyoruz. Sadece dışarıdaki sabit objelerin değerlerini değiştiriyoruz.

@@ -333,7 +333,7 @@ var sharedTypingOpts = {
 function initNametags() {
   mp.nametags.enabled = false;
   console.log("[NAMETAG] Zero-Allocation sistemi aktif. RAM y\xFCk\xFC: 0");
-  mp.events.addDataHandler("realName", (entity, value) => {
+  mp.events.addDataHandler("characterName", (entity, value) => {
     if (entity.type === "player") {
       const data = getOrCreateData(entity.remoteId);
       data.charName = value;
@@ -411,9 +411,21 @@ mp.events.add("render", () => {
     const dz = pPos.z - localPos.z;
     const distSq = dx * dx + dy * dy + dz * dz;
     if (distSq > MAX_DIST_SQ) continue;
-    const screen = mp.game.graphics.world3dToScreen2d(pPos.x, pPos.y, pPos.z + 1);
+    let drawX = pPos.x;
+    let drawY = pPos.y;
+    let drawZ = pPos.z + 1.2;
+    try {
+      const boneCoords = player.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
+      if (boneCoords && boneCoords.z !== 0) {
+        drawX = boneCoords.x;
+        drawY = boneCoords.y;
+        drawZ = boneCoords.z + 0.5;
+      }
+    } catch (e) {
+    }
+    const screen = mp.game.graphics.world3dToScreen2d(drawX, drawY, drawZ);
     if (!screen) continue;
-    const scale = 0.35 - distSq / MAX_DIST_SQ * 0.2;
+    const scale = 0.42 - distSq / MAX_DIST_SQ * 0.2;
     sharedScreenPos[0] = screen.x;
     sharedScreenPos[1] = screen.y;
     sharedTextOpts.scale[0] = scale;

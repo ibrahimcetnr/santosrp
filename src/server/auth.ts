@@ -361,7 +361,7 @@ export function registerAuthEvents(): void {
     // HUD'u başlat: karakter adı, RAGE player ID, para
     const charName = `${charRow.first_name} ${charRow.last_name}`;
     player.characterName = charName;
-    player.setVariable('realName', charName);
+    player.setVariable('characterName', charName);
     player.call('client:startHUD', [charName, player.id, charRow.money]);
 
     // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
@@ -430,7 +430,7 @@ export function registerAuthEvents(): void {
       const ci = charInfoRes.rows[0];
       const charName = `${ci.first_name} ${ci.last_name}`;
       player.characterName = charName;
-      player.setVariable('realName', charName);
+      player.setVariable('characterName', charName);
       player.call('client:startHUD', [charName, player.id, ci.money]);
 
       // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
