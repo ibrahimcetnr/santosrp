@@ -9,6 +9,7 @@ import { safeEvent, isPlayerValid } from './utils/safeEvent';
 import { disconnectDB } from './db';
 import { initCommandSystem, getAvailableCommands } from './cmdHandler';
 import { startPayday } from './payday';
+import { initWeatherSystem } from './weather';
 import '../shared/types'; // PlayerMp augmentation
 
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
@@ -49,6 +50,9 @@ initCommandSystem();
 
 // Payday / progression sistemini başlat
 startPayday();
+
+// Gerçek zamanlı hava & saat sistemini başlat
+initWeatherSystem();
 
 safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason: string) => {
   // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.

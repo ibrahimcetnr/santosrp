@@ -13,6 +13,7 @@ const safeEvent_1 = require("./utils/safeEvent");
 const db_1 = require("./db");
 const cmdHandler_1 = require("./cmdHandler");
 const payday_1 = require("./payday");
+const weather_1 = require("./weather");
 require("../shared/types"); // PlayerMp augmentation
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
 // safeEvent dışında kalan her async kod parçası için güvenlik ağı.
@@ -44,6 +45,8 @@ setInterval(() => {
 (0, cmdHandler_1.initCommandSystem)();
 // Payday / progression sistemini başlat
 (0, payday_1.startPayday)();
+// Gerçek zamanlı hava & saat sistemini başlat
+(0, weather_1.initWeatherSystem)();
 (0, safeEvent_1.safeEvent)('playerDisconnect', async (player, exitType, reason) => {
     // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.
     // try-catch ile güvenli okuma yapıyoruz.
