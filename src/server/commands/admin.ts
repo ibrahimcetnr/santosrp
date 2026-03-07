@@ -210,43 +210,151 @@ registerCommand(
 registerCommand(
   {
     name: '/tp',
-    syntax: '[ID]',
-    description: 'Hedef oyuncunun konumuna ışınlanır',
+    syntax: '[X] [Y] [Z]',
+    description: 'Koordinatlara ışınlanırsınız',
     permissions: { admin: 3 },
   },
   (player: PlayerMp, args: string[]) => {
-    if (args.length < 1) {
-      player.outputChatBox('!{#fbbf24}[KULLANIM] /tp [ID]');
-      player.outputChatBox('!{#94a3b8}Örnek: /tp 5');
+    if (args.length < 3) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /tp [X] [Y] [Z]');
       return;
     }
 
-    const targetId = parseInt(args[0], 10);
-    if (isNaN(targetId)) {
-      player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+    const x = parseFloat(args[0]), y = parseFloat(args[1]), z = parseFloat(args[2]);
+    if (isNaN(x) || isNaN(y) || isNaN(z)) {
+      player.outputChatBox('!{#ef4444}[HATA] Geçersiz koordinat değerleri.');
       return;
     }
 
-    const target = mp.players.at(targetId);
-    if (!target || !isPlayerValid(target)) {
-      player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
-      return;
-    }
+    player.position = new mp.Vector3(x, y, z);
+    player.outputChatBox('!{#22c55e}[BAŞARILI] Belirtilen koordinatlara ışınlandınız.');
+    console.log(`[TP] ${player.characterName || player.name} → (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
+  }
+);
 
-    if (target === player) {
-      player.outputChatBox('!{#ef4444}[HATA] Kendinize teleport olamazsınız.');
-      return;
-    }
+/** /goto [ID] - Oyuncunun yanına ışınlan */
+registerCommand(
+  {
+    name: '/goto',
+    syntax: '[ID]',
+    description: 'Oyuncunun yanına ışınlanırsınız',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 1) return player.outputChatBox('!{#fbbf24}[KULLANIM] /goto [ID]');
 
-    const targetName = target.characterName || target.accountUsername || target.name;
-    const adminName  = player.characterName  || player.accountUsername  || player.name;
-    const pos        = target.position;
+    const target = mp.players.at(parseInt(args[0], 10));
+    if (!target || !isPlayerValid(target)) return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı veya geçersiz ID.');
 
-    // Hafifçe yanına ışınla (üst üste binmesin)
+    const pos = target.position;
     player.position = new mp.Vector3(pos.x + 1.5, pos.y, pos.z);
-    player.heading  = target.heading;
+    player.dimension = target.dimension;
+    player.outputChatBox(`!{#22c55e}[BAŞARILI] ${target.characterName || target.name} adlı oyuncunun yanına ışınlandınız.`);
+    console.log(`[GOTO] ${player.characterName || player.name} → ${target.characterName || target.name}`);
+  }
+);
 
-    player.outputChatBox(`!{#22c55e}[TP] ${targetName} konumuna ışınlandınız.`);
-    console.log(`[TP] ${adminName} → ${targetName} (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+/** /get [ID] - Oyuncuyu yanına çek */
+registerCommand(
+  {
+    name: '/get',
+    syntax: '[ID]',
+    description: 'Oyuncuyu yanınıza çekersiniz',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 1) return player.outputChatBox('!{#fbbf24}[KULLANIM] /get [ID]');
+
+    const target = mp.players.at(parseInt(args[0], 10));
+    if (!target || !isPlayerValid(target)) return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı veya geçersiz ID.');
+    if (target === player) return player.outputChatBox('!{#ef4444}[HATA] Kendinizi çekemezsiniz.');
+
+    const pos = player.position;
+    target.position = new mp.Vector3(pos.x + 1.5, pos.y, pos.z);
+    target.dimension = player.dimension;
+
+    player.outputChatBox(`!{#22c55e}[BAŞARILI] ${target.characterName || target.name} adlı oyuncuyu yanınıza çektiniz.`);
+    target.outputChatBox('!{#fbbf24}[BİLGİ] Bir yetkili tarafından ışınlandınız.');
+    console.log(`[GET] ${player.characterName || player.name} pulled ${target.characterName || target.name}`);
+  }
+);
+
+/** /fixveh - İçinde bulunduğun aracı tamir et */
+registerCommand(
+  {
+    name: '/fixveh',
+    syntax: '',
+    description: 'İçinde bulunduğunuz aracı tamir eder',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp) => {
+    if (!player.vehicle) return player.outputChatBox('!{#ef4444}[HATA] Herhangi bir aracın içinde değilsiniz.');
+
+    player.vehicle.repair();
+    player.outputChatBox('!{#22c55e}[BAŞARILI] Araç başarıyla tamir edildi.');
+    console.log(`[FIXVEH] ${player.characterName || player.name} repaired a vehicle`);
+  }
+);
+
+/** /dv - İçinde bulunduğun aracı sil */
+registerCommand(
+  {
+    name: '/dv',
+    syntax: '',
+    description: 'İçinde bulunduğunuz aracı siler',
+    permissions: { admin: 2 },
+  },
+  (player: PlayerMp) => {
+    if (!player.vehicle) return player.outputChatBox('!{#ef4444}[HATA] Herhangi bir aracın içinde değilsiniz.');
+
+    player.vehicle.destroy();
+    player.outputChatBox('!{#22c55e}[BAŞARILI] Araç başarıyla silindi.');
+    console.log(`[DV] ${player.characterName || player.name} destroyed a vehicle`);
+  }
+);
+
+/** /sethp [ID] [Can] - Oyuncunun canını ayarla */
+registerCommand(
+  {
+    name: '/sethp',
+    syntax: '[ID] [Değer]',
+    description: 'Oyuncunun canını ayarlar',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 2) return player.outputChatBox('!{#fbbf24}[KULLANIM] /sethp [ID] [Can]');
+
+    const target = mp.players.at(parseInt(args[0], 10));
+    const hp = parseInt(args[1], 10);
+
+    if (!target || !isPlayerValid(target)) return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı.');
+    if (isNaN(hp) || hp < 0 || hp > 100) return player.outputChatBox('!{#ef4444}[HATA] Can 0-100 arasında olmalıdır.');
+
+    target.health = hp;
+    player.outputChatBox(`!{#22c55e}[BAŞARILI] ${target.characterName || target.name} adlı oyuncunun canı ${hp} yapıldı.`);
+    console.log(`[SETHP] ${player.characterName || player.name} set ${target.characterName || target.name} health to ${hp}`);
+  }
+);
+
+/** /setarmor [ID] [Zırh] - Oyuncunun zırhını ayarla */
+registerCommand(
+  {
+    name: '/setarmor',
+    syntax: '[ID] [Değer]',
+    description: 'Oyuncunun zırhını ayarlar',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 2) return player.outputChatBox('!{#fbbf24}[KULLANIM] /setarmor [ID] [Zırh]');
+
+    const target = mp.players.at(parseInt(args[0], 10));
+    const armor = parseInt(args[1], 10);
+
+    if (!target || !isPlayerValid(target)) return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı.');
+    if (isNaN(armor) || armor < 0 || armor > 100) return player.outputChatBox('!{#ef4444}[HATA] Zırh 0-100 arasında olmalıdır.');
+
+    target.armour = armor;
+    player.outputChatBox(`!{#22c55e}[BAŞARILI] ${target.characterName || target.name} adlı oyuncunun zırhı ${armor} yapıldı.`);
+    console.log(`[SETARMOR] ${player.characterName || player.name} set ${target.characterName || target.name} armour to ${armor}`);
   }
 );
