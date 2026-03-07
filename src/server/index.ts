@@ -8,6 +8,7 @@ import { startSaveQueue, stopSaveQueue, flushAll, requestFlush, queueCharacterSa
 import { safeEvent, isPlayerValid } from './utils/safeEvent';
 import { disconnectDB } from './db';
 import { initCommandSystem, getAvailableCommands } from './cmdHandler';
+import { startPayday } from './payday';
 import '../shared/types'; // PlayerMp augmentation
 
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
@@ -45,6 +46,9 @@ registerAuthEvents();
 
 // Komut sistemini başlat
 initCommandSystem();
+
+// Payday / progression sistemini başlat
+startPayday();
 
 safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason: string) => {
   // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.

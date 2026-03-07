@@ -15,7 +15,16 @@ interface CharSaveData {
   job?: string | null;
 }
 
+interface AccountSaveData {
+  accountId: number;
+  level?: number;
+  xp?: number;
+  payday?: number;
+  play_time?: number;
+}
+
 const saveQueue = new Map<number, CharSaveData>();
+const accountSaveQueue = new Map<number, AccountSaveData>();
 let saveTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -24,10 +33,21 @@ let saveTimer: ReturnType<typeof setInterval> | null = null;
 export function queueCharacterSave(data: CharSaveData): void {
   const existing = saveQueue.get(data.characterId);
   if (existing) {
-    // Mevcut veriye merge et (en son değerler kazanır)
     saveQueue.set(data.characterId, { ...existing, ...data });
   } else {
     saveQueue.set(data.characterId, data);
+  }
+}
+
+/**
+ * Kuyruğa hesap (account) verisi ekle (level, xp, payday, play_time)
+ */
+export function queueAccountSave(data: AccountSaveData): void {
+  const existing = accountSaveQueue.get(data.accountId);
+  if (existing) {
+    accountSaveQueue.set(data.accountId, { ...existing, ...data });
+  } else {
+    accountSaveQueue.set(data.accountId, data);
   }
 }
 
@@ -121,6 +141,14 @@ export async function flushAll(): Promise<void> {
 
   console.log(`[SAVE-QUEUE] Toplu kaydetme başladı: ${entries.length} karakter`);
   await flushInChunks(entries);
+
+  const accountEntries = Array.from(accountSaveQueue.values());
+  accountSaveQueue.clear();
+  if (accountEntries.length > 0) {
+    console.log(`[SAVE-QUEUE] Hesap kaydetme başladı: ${accountEntries.length} hesap`);
+    await Promise.allSettled(accountEntries.map(writeAccountToDB));
+  }
+
   console.log(`[SAVE-QUEUE] Toplu kaydetme tamamlandı.`);
 }
 
@@ -167,23 +195,56 @@ async function writeCharacterToDB(data: CharSaveData, retries = 2): Promise<void
 }
 
 /**
+ * Hesap (account) verisini DB'ye yaz — level, xp, payday, play_time
+ */
+async function writeAccountToDB(data: AccountSaveData): Promise<void> {
+  const updateData: Record<string, unknown> = {};
+  if (data.level     !== undefined) updateData.level     = data.level;
+  if (data.xp        !== undefined) updateData.xp        = data.xp;
+  if (data.payday    !== undefined) updateData.payday    = data.payday;
+  if (data.play_time !== undefined) updateData.play_time = data.play_time;
+
+  if (Object.keys(updateData).length === 0) return;
+
+  try {
+    const keys = Object.keys(updateData);
+    const values = Object.values(updateData);
+    const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
+    await query(`UPDATE accounts SET ${setClause} WHERE id = $${keys.length + 1}`, [...values, data.accountId]);
+  } catch (err) {
+    console.error(`[SAVE-QUEUE] Hesap ${data.accountId} kaydedilemedi:`, err);
+  }
+}
+
+/**
  * Periyodik save döngüsünü başlat
  */
 export function startSaveQueue(): void {
   if (saveTimer) return;
 
   saveTimer = setInterval(async () => {
-    if (saveQueue.size === 0) return;
+    const charEntries = saveQueue.size > 0 ? Array.from(saveQueue.values()) : [];
+    if (charEntries.length > 0) saveQueue.clear();
 
-    const entries = Array.from(saveQueue.values());
-    saveQueue.clear();
+    const accEntries = accountSaveQueue.size > 0 ? Array.from(accountSaveQueue.values()) : [];
+    if (accEntries.length > 0) accountSaveQueue.clear();
 
-    console.log(`[SAVE-QUEUE] Periyodik kaydetme başladı: ${entries.length} karakter`);
-    // Chunk'lı flush: 20'lik gruplar, event loop açık kalır
-    try {
-      await flushInChunks(entries);
-    } catch (err) {
-      console.error('[SAVE-QUEUE] Periyodik flush hatası:', err);
+    if (charEntries.length > 0) {
+      console.log(`[SAVE-QUEUE] Periyodik kaydetme başladı: ${charEntries.length} karakter`);
+      try {
+        await flushInChunks(charEntries);
+      } catch (err) {
+        console.error('[SAVE-QUEUE] Periyodik karakter flush hatası:', err);
+      }
+    }
+
+    if (accEntries.length > 0) {
+      console.log(`[SAVE-QUEUE] Periyodik hesap kaydetme: ${accEntries.length} hesap`);
+      try {
+        await Promise.allSettled(accEntries.map(writeAccountToDB));
+      } catch (err) {
+        console.error('[SAVE-QUEUE] Periyodik hesap flush hatası:', err);
+      }
     }
   }, SAVE_INTERVAL);
 

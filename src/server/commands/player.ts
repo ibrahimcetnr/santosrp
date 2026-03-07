@@ -68,3 +68,52 @@ registerCommand(
     }
   }
 );
+
+registerCommand(
+  {
+    name: '/zaman',
+    syntax: '',
+    description: 'Toplam oynama sürenizi ve sonraki maaşa kalan süreyi gösterir',
+  },
+  (player: PlayerMp) => {
+    const playTime = player.accountPlayTime ?? 0;
+    const payday   = player.accountPayday   ?? 0;
+    const kalan    = 60 - payday;
+
+    const saatler  = Math.floor(playTime / 60);
+    const dakikalar = playTime % 60;
+    const zamanStr = saatler > 0
+      ? `${saatler} saat ${dakikalar} dakika`
+      : `${dakikalar} dakika`;
+
+    player.outputChatBox('!{#c9a84c}╔══════════════════════════════╗');
+    player.outputChatBox('!{#c9a84c}║      !{#ffffff}OYNAMA İSTATİSTİĞİ      !{#c9a84c}║');
+    player.outputChatBox('!{#c9a84c}╠══════════════════════════════╣');
+    player.outputChatBox(`!{#c9a84c}║  !{#3b82f6}Toplam Süre: !{#ffffff}${zamanStr}`);
+    player.outputChatBox(`!{#c9a84c}║  !{#22c55e}Sonraki Maaş: !{#ffffff}${kalan} dakika`);
+    player.outputChatBox('!{#c9a84c}╚══════════════════════════════╝');
+  }
+);
+
+registerCommand(
+  {
+    name: '/seviye',
+    syntax: '',
+    description: 'Mevcut seviyenizi ve XP durumunuzu gösterir',
+  },
+  (player: PlayerMp) => {
+    const level    = player.accountLevel ?? 1;
+    const xp       = player.accountXp    ?? 0;
+    const reqXp    = level * 4;
+    const progress = Math.min(Math.floor((xp / reqXp) * 20), 20);
+    const bar      = '█'.repeat(progress) + '░'.repeat(20 - progress);
+
+    player.outputChatBox('!{#c9a84c}╔══════════════════════════════╗');
+    player.outputChatBox('!{#c9a84c}║        !{#ffffff}SEVİYE BİLGİSİ         !{#c9a84c}║');
+    player.outputChatBox('!{#c9a84c}╠══════════════════════════════╣');
+    player.outputChatBox(`!{#c9a84c}║  !{#f59e0b}Seviye: !{#ffffff}${level}`);
+    player.outputChatBox(`!{#c9a84c}║  !{#a78bfa}XP: !{#ffffff}${xp} / ${reqXp}`);
+    player.outputChatBox(`!{#c9a84c}║  !{#6366f1}[!{#22c55e}${bar}!{#6366f1}]`);
+    player.outputChatBox('!{#c9a84c}╚══════════════════════════════╝');
+  }
+);

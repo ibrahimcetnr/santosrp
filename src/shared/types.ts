@@ -14,6 +14,10 @@ export interface IAccount {
   lastLogin: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  level: number;
+  xp: number;
+  payday: number;
+  play_time: number;
 }
 
 /** DB characters tablosu */
@@ -84,5 +88,10 @@ declare global {
     vipLevel?: number;
     helperLevel?: number;
     zone?: string;
+    // Payday / Progression sistemi
+    accountLevel?: number;
+    accountXp?: number;
+    accountPayday?: number;
+    accountPlayTime?: number;
   }
 }
