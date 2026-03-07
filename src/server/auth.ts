@@ -13,6 +13,7 @@ import { bcryptCompare } from './bcrypt-pool';
 import { query } from './db';
 import { getCachedAccount, invalidateAccountCache } from './cache';
 import { safeEvent, isPlayerValid } from './utils/safeEvent';
+import { applyPlayerAppearance } from './utils/appearance';
 import '../shared/types'; // PlayerMp augmentation (global declare)
 
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
@@ -307,7 +308,7 @@ export function registerAuthEvents(): void {
 
     // Yetkilendirme + karakter verisi
     const charRes = await query(
-      'SELECT id, first_name, last_name, money, gender, position FROM characters WHERE id = $1 AND account_id = $2',
+      'SELECT id, first_name, last_name, money, gender, position, char_data FROM characters WHERE id = $1 AND account_id = $2',
       [charId, accountId]
     );
     if (!isPlayerValid(player)) return;
@@ -343,6 +344,18 @@ export function registerAuthEvents(): void {
 
     const isMale = charRow.gender !== 1;
     player.model = mp.joaat(isMale ? 'mp_m_freemode_01' : 'mp_f_freemode_01');
+
+    // Kaydedilmiş görünümü tüm istemcilere sunucu taraflı senkronize et
+    if (charRow.char_data) {
+      try {
+        const appearance = typeof charRow.char_data === 'string'
+          ? JSON.parse(charRow.char_data)
+          : charRow.char_data;
+        applyPlayerAppearance(player, appearance);
+      } catch (err) {
+        console.error(`[AUTH] char_data parse hatas\u0131 (charId=${charId}):`, err);
+      }
+    }
 
     // HUD'u başlat: karakter adı, RAGE player ID, para
     const charName = `${charRow.first_name} ${charRow.last_name}`;
@@ -400,7 +413,8 @@ export function registerAuthEvents(): void {
       const appearance = JSON.parse(appearanceStr);
       isFemale = appearance.gender === 1;
       player.model = mp.joaat(isFemale ? 'mp_f_freemode_01' : 'mp_m_freemode_01');
-      player.call('client:applyAppearance', [appearanceStr]);
+      // Sunucu taraflı senkronizasyon — tüm istemcilere otomatik gönderilir
+      applyPlayerAppearance(player, appearance);
     } catch {
       player.model = mp.joaat('mp_m_freemode_01');
     }
