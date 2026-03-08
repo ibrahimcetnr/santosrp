@@ -191,6 +191,16 @@ function initCommandSystem() {
         const fullCmd = '/' + cmdText.trim();
         await executeCommand(player, fullCmd);
     });
+    // Client-side tuş bağlamalarından gelen komutlar (mp.events.callRemote('runCommand', '/motor'))
+    (0, safeEvent_1.safeEvent)('runCommand', async (player, cmdText) => {
+        if (!(0, safeEvent_1.isPlayerValid)(player) || !player.characterId)
+            return;
+        if (typeof cmdText !== 'string' || cmdText.length === 0)
+            return;
+        // Slash olmadan veya ile gelebilir — normalize et
+        const fullCmd = cmdText.trim().startsWith('/') ? cmdText.trim() : '/' + cmdText.trim();
+        await executeCommand(player, fullCmd);
+    });
     console.log('[CMD] Komut sistemi başlatıldı.');
     Promise.resolve().then(() => __importStar(require('./commands'))); // Alt modülleri yükle
 }

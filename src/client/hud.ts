@@ -120,4 +120,32 @@ export function initHUD(): void {
       mp.game.controls.disableControlAction(255, 245, true);
     } catch {}
   });
+
+  // ── Araç HUD Poller (100ms) ───────────────────────────────────────────────
+  // Render event yerine interval kullanıyoruz — araç verisi saniyede 10x yeterli,
+  // render'da her frame hesaplama yapmak gereksiz yük oluşturur.
+  setInterval(() => {
+    if (!hudActive) return;
+    try {
+      const player  = mp.players.local;
+      const vehicle = player.vehicle;
+
+      if (!vehicle) {
+        sendToHUD('hudVehicle', { inVehicle: false });
+        return;
+      }
+
+      // Hız: m/s → km/h (getSpeed daha doğru)
+      const speed = Math.round(vehicle.getSpeed() * 3.6);
+
+      sendToHUD('hudVehicle', {
+        inVehicle:   true,
+        speed,
+        fuel:        (vehicle.getVariable('fuel') as number | undefined) ?? 100,
+        engineOn:    !!vehicle.getVariable('engineStatus'),
+        isLocked:    !!vehicle.getVariable('lockedStatus'),
+        seatbelt:    !!player.getVariable('seatbelt'),
+      });
+    } catch {}
+  }, 100);
 }

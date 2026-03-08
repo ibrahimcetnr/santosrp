@@ -297,6 +297,27 @@ function initHUD() {
     } catch {
     }
   });
+  setInterval(() => {
+    if (!hudActive) return;
+    try {
+      const player = mp.players.local;
+      const vehicle = player.vehicle;
+      if (!vehicle) {
+        sendToHUD("hudVehicle", { inVehicle: false });
+        return;
+      }
+      const speed = Math.round(vehicle.getSpeed() * 3.6);
+      sendToHUD("hudVehicle", {
+        inVehicle: true,
+        speed,
+        fuel: vehicle.getVariable("fuel") ?? 100,
+        engineOn: !!vehicle.getVariable("engineStatus"),
+        isLocked: !!vehicle.getVariable("lockedStatus"),
+        seatbelt: !!player.getVariable("seatbelt")
+      });
+    } catch {
+    }
+  }, 100);
 }
 
 // src/client/nametags.ts
@@ -747,3 +768,46 @@ mp.events.add("browserCreated", (browser) => {
 });
 console.log("[CLIENT] SantosRP client-side ba\u015Flat\u0131ld\u0131!");
 initCreator();
+function isUIOpen() {
+  return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
+}
+mp.keys.bind(77, true, () => {
+  if (isUIOpen()) return;
+  mp.events.callRemote("runCommand", "/motor");
+});
+mp.keys.bind(76, true, () => {
+  if (isUIOpen()) return;
+  mp.events.callRemote("runCommand", "/kilit");
+});
+mp.keys.bind(75, true, () => {
+  if (isUIOpen()) return;
+  if (!mp.players.local.vehicle) return;
+  mp.events.callRemote("runCommand", "/kemer");
+});
+mp.events.add("entityStreamIn", (entity) => {
+  if (entity.type !== "vehicle") return;
+  const vehicle = entity;
+  try {
+    mp.game.vehicle.setVehicleEngineOn(vehicle.handle, false, true, true);
+    mp.game.vehicle.setVehicleUndriveable(vehicle.handle, true);
+  } catch {
+  }
+});
+mp.events.add("playerEnterVehicle", (vehicle, _seat) => {
+  if (!vehicle) return;
+  try {
+    const engineOn = !!vehicle.getVariable("engineStatus");
+    mp.game.vehicle.setVehicleEngineOn(vehicle.handle, engineOn, true, true);
+    mp.game.vehicle.setVehicleUndriveable(vehicle.handle, !engineOn);
+  } catch {
+  }
+});
+mp.events.add("render", () => {
+  const player = mp.players.local;
+  if (!player.vehicle) return;
+  const hasSeatbelt = !!player.getVariable("seatbelt");
+  if (hasSeatbelt) {
+    mp.game.player.setCanBeKnockedOffVehicle(true);
+    mp.game.player.setConfigFlag(149, true);
+  }
+});

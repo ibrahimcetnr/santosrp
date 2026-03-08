@@ -2,6 +2,9 @@
  * SantosRP — Araç Komutları
  * /araccikar [Plaka]  — Park edilmiş aracı dünyaya çıkarır
  * /parket             — Aracı hızlı park moduna alır (30dk zamanlayıcı)
+ * /motor  (/m)        — Motoru aç/kapat
+ * /kilit  (/l)        — Kilidi aç/kapat
+ * /kemer  (/k)        — Emniyet kemerini tak/çıkar
  */
 import { registerCommand } from '../cmdHandler';
 import { isPlayerValid } from '../utils/safeEvent';
@@ -126,3 +129,101 @@ registerCommand(
         );
     }
 );
+
+// ─── /motor (/m) ─────────────────────────────────────────────────────────────
+
+for (const name of ['/motor', '/m']) {
+    registerCommand(
+        { name, syntax: '', description: 'Araç motorunu açar/kapatır' },
+        (player: PlayerMp) => {
+            const vehicle = player.vehicle;
+            if (!vehicle) {
+                player.outputChatBox('!{#fbbf24}[HATA] Bir araçta olmanız gerekiyor.');
+                return;
+            }
+            if ((player.seat as unknown as number) !== 0) {
+                player.outputChatBox('!{#fbbf24}[HATA] Yalnızca sürücü bu komutu kullanabilir.');
+                return;
+            }
+
+            vehicle.engine = !vehicle.engine;
+            vehicle.setVariable('engineStatus', vehicle.engine);
+
+            if (vehicle.engine) {
+                player.outputChatBox('!{#22c55e}[MOTOR] Motor çalıştırıldı.');
+            } else {
+                player.outputChatBox('!{#ef4444}[MOTOR] Motor kapatıldı.');
+            }
+        }
+    );
+}
+
+// ─── /kilit (/l) ─────────────────────────────────────────────────────────────
+
+for (const name of ['/kilit', '/l']) {
+    registerCommand(
+        { name, syntax: '', description: 'Araç kilidini açar/kapatır' },
+        (player: PlayerMp) => {
+            let vehicle = player.vehicle;
+
+            // Araçta değilse 5 metre yakınındaki en yakın aracı bul
+            if (!vehicle) {
+                let nearest: VehicleMp | null = null;
+                let nearestDist = 5.0;
+                const pPos = player.position;
+                mp.vehicles.toArray().forEach((v: VehicleMp) => {
+                    try {
+                        const vPos = v.position;
+                        const dist = Math.sqrt(
+                            Math.pow(pPos.x - vPos.x, 2) +
+                            Math.pow(pPos.y - vPos.y, 2) +
+                            Math.pow(pPos.z - vPos.z, 2)
+                        );
+                        if (dist < nearestDist) {
+                            nearestDist = dist;
+                            nearest = v;
+                        }
+                    } catch {}
+                });
+
+                if (!nearest) {
+                    player.outputChatBox('!{#fbbf24}[HATA] Yakında kilitlenebilecek bir araç yok.');
+                    return;
+                }
+                vehicle = nearest;
+            }
+
+            vehicle.locked = !vehicle.locked;
+            vehicle.setVariable('lockedStatus', vehicle.locked);
+
+            if (vehicle.locked) {
+                player.outputChatBox('!{#ef4444}[KİLİT] Araç kilitlendi.');
+            } else {
+                player.outputChatBox('!{#22c55e}[KİLİT] Araç kilidi açıldı.');
+            }
+        }
+    );
+}
+
+// ─── /kemer (/k) ─────────────────────────────────────────────────────────────
+
+for (const name of ['/kemer', '/k']) {
+    registerCommand(
+        { name, syntax: '', description: 'Emniyet kemerini takar/çıkarır' },
+        (player: PlayerMp) => {
+            if (!player.vehicle) {
+                player.outputChatBox('!{#fbbf24}[HATA] Bir araçta olmanız gerekiyor.');
+                return;
+            }
+
+            const current = !!player.getVariable('seatbelt');
+            player.setVariable('seatbelt', !current);
+
+            if (!current) {
+                player.outputChatBox('!{#22c55e}[KEMER] Emniyet kemeri takıldı.');
+            } else {
+                player.outputChatBox('!{#ef4444}[KEMER] Emniyet kemeri çıkarıldı.');
+            }
+        }
+    );
+}

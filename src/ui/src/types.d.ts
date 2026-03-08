@@ -44,6 +44,15 @@ interface HudMessageData {
   text: string;
 }
 
+interface HudVehicleData {
+  inVehicle: boolean;
+  speed?: number;
+  fuel?: number;
+  engineOn?: boolean;
+  isLocked?: boolean;
+  seatbelt?: boolean;
+}
+
 interface SyncTimeData {
   timestamp: number;
 }
@@ -75,6 +84,7 @@ declare global {
     hudUpdateMapPosition?: (data: { bottom: number; left: number }) => void;
     openChat?: () => void;
     hudMessage?: (data: HudMessageData) => void;
+    hudVehicle?: (data: HudVehicleData) => void;
     
     // Auth Functions
     onLoginSuccess?: (username: string, adminLevel: number, charsJson: string) => void;

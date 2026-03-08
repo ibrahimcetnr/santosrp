@@ -73,25 +73,20 @@ function initVehicleManager() {
     console.log('[VEHICLE] Araç Yöneticisi başlatılıyor...');
     // Araçtan inilince ─────────────────────────────────────────────────────────
     (0, safeEvent_1.safeEvent)('playerExitVehicle', (player, vehicle) => {
-        console.log('1');
         if (!vehicle || !mp.vehicles.exists(vehicle))
             return;
-        console.log('2');
         // dbId yoksa bu araç takip edilmiyor (admin spawn vb.)
         const dbId = vehicle.getVariable('dbId');
         if (!dbId)
             return;
-        console.log('3');
         // İnen oyuncu hariç araçta başkası var mı?
         // (RAGE sync gecikmesine karşı: inen oyuncunun vehicle'ı henüz null olmayabilir)
         const stillOccupied = mp.players.toArray().some((p) => p.vehicle === vehicle && p.id !== player.id);
         if (stillOccupied)
             return;
-        console.log('4');
         // Bu araç için zaten bekleyen bir timer varsa tekrar başlatma
         if (parkTimers.has(dbId))
             return;
-        console.log('5');
         const isFastPark = !!vehicle.getVariable('fast_park');
         const timeout = isFastPark ? TIMEOUT_FAST : TIMEOUT_STANDARD;
         const timer = setTimeout(() => parkVehicle(dbId), timeout);

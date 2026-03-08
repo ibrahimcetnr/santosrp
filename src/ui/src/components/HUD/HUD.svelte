@@ -347,6 +347,24 @@
       addChatMessage(data.text);
     };
 
+    // Araç gösterge paneli güncellemesi (hud.ts'den 100ms'de bir gelir)
+    window.hudVehicle = (data: {
+      inVehicle: boolean;
+      speed?: number;
+      fuel?: number;
+      engineOn?: boolean;
+      isLocked?: boolean;
+      seatbelt?: boolean;
+    }) => {
+      inVehicle    = data.inVehicle;
+      if (!data.inVehicle) return;
+      vehicleSpeed = data.speed    ?? vehicleSpeed;
+      fuelLevel    = data.fuel     ?? fuelLevel;
+      isEngineOn   = data.engineOn ?? isEngineOn;
+      isLocked     = data.isLocked ?? isLocked;
+      hasSeatbelt  = data.seatbelt ?? hasSeatbelt;
+    };
+
     // Komut listesi güncelleme
     window.updateCommandList = (commands: Command[]) => {
       allCommands = commands;
@@ -365,6 +383,7 @@
       delete window.hudMessage;
       delete window.chatAPI;
       delete window.updateCommandList;
+      delete window.hudVehicle;
     };
   });
   
