@@ -14,6 +14,8 @@ const db_1 = require("./db");
 const cmdHandler_1 = require("./cmdHandler");
 const payday_1 = require("./payday");
 const weather_1 = require("./weather");
+const vehicleDamage_1 = require("./vehicleDamage");
+const VehicleManager_1 = require("./VehicleManager");
 require("../shared/types"); // PlayerMp augmentation
 let isShuttingDown = false;
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
@@ -48,6 +50,12 @@ setInterval(() => {
 (0, payday_1.startPayday)();
 // Gerçek zamanlı hava & saat sistemini başlat
 (0, weather_1.initWeatherSystem)();
+// Araç hasar sistemini başlat
+(0, vehicleDamage_1.initVehicleDamageEvents)();
+// Startup kurtarma: sunucu kapanırken dışarıda kalan araçları parka çek
+(0, VehicleManager_1.recoverVehicles)();
+// Araç yöneticisini başlat (otomatik park sistemi)
+(0, VehicleManager_1.initVehicleManager)();
 (0, safeEvent_1.safeEvent)('playerDisconnect', async (player, exitType, reason) => {
     if (isShuttingDown)
         return; // Sunucu kapanırken flushAll çalışacağı için çakışmayı önle

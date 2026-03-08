@@ -10,6 +10,8 @@ import { disconnectDB } from './db';
 import { initCommandSystem, getAvailableCommands } from './cmdHandler';
 import { startPayday } from './payday';
 import { initWeatherSystem } from './weather';
+import { initVehicleDamageEvents } from './vehicleDamage';
+import { recoverVehicles, initVehicleManager } from './VehicleManager';
 import '../shared/types'; // PlayerMp augmentation
 
 let isShuttingDown = false;
@@ -55,6 +57,15 @@ startPayday();
 
 // Gerçek zamanlı hava & saat sistemini başlat
 initWeatherSystem();
+
+// Araç hasar sistemini başlat
+initVehicleDamageEvents();
+
+// Startup kurtarma: sunucu kapanırken dışarıda kalan araçları parka çek
+recoverVehicles();
+
+// Araç yöneticisini başlat (otomatik park sistemi)
+initVehicleManager();
 
 safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason: string) => {
   if (isShuttingDown) return; // Sunucu kapanırken flushAll çalışacağı için çakışmayı önle

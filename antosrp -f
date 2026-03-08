@@ -1,0 +1,20 @@
+[0;1;32m●[0m santosrp.service - SantosRP - RAGE:MP Game Server
+     Loaded: loaded (/etc/systemd/system/santosrp.service; enabled; vendor preset: enabled)
+     Active: [0;1;32mactive (running)[0m since Sun 2026-03-08 19:05:54 UTC; 12min ago
+   Main PID: 87081 (ragemp-server)
+      Tasks: 283 (limit: 4555)
+     Memory: 889.6M
+        CPU: 56.924s
+     CGroup: /system.slice/santosrp.service
+             └─87081 /home/santosrp_project/ragemp-srv/ragemp-server
+
+Mar 08 19:16:55 45-67-203-29 santosrp[87081]: [SAVE-QUEUE] Periyodik kaydetme başladı: 2 karakter
+Mar 08 19:16:55 45-67-203-29 santosrp[87081]: [SAVE-QUEUE] Periyodik hesap kaydetme: 2 hesap
+Mar 08 19:17:06 45-67-203-29 santosrp[87081]: [SPAWN] Yaso Test revived Yaso Test
+Mar 08 19:17:12 45-67-203-29 santosrp[87081]: [SPAWN] Yaso Test revived Yaso Test
+Mar 08 19:17:16 45-67-203-29 santosrp[87081]: [SPAWN] Yaso Test revived Yaso Test
+Mar 08 19:17:25 45-67-203-29 santosrp[87081]: [SAVE-QUEUE] Periyodik kaydetme başladı: 2 karakter
+Mar 08 19:17:31 45-67-203-29 santosrp[87081]: [TP] Yaso Test → (0.0, 0.0, 0.0)
+Mar 08 19:17:55 45-67-203-29 santosrp[87081]: [SAVE-QUEUE] Periyodik kaydetme başladı: 2 karakter
+Mar 08 19:17:55 45-67-203-29 santosrp[87081]: [SAVE-QUEUE] Periyodik hesap kaydetme: 2 hesap
+Mar 08 19:18:25 45-67-203-29 santosrp[87081]: [SAVE-QUEUE] Periyodik kaydetme başladı: 2 karakter
