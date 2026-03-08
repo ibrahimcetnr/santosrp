@@ -10,7 +10,8 @@ import { disconnectDB } from './db';
 import { initCommandSystem, getAvailableCommands } from './cmdHandler';
 import { startPayday } from './payday';
 import { initWeatherSystem } from './weather';
-import { recoverVehicles, initVehicleManager } from './VehicleManager';
+import { recoverVehicles, initVehicleManager, saveAllVehicles } from './VehicleManager';
+import { initVehicleDataManager } from './VehicleDataManager';
 
 import '../shared/types'; // PlayerMp augmentation
 
@@ -60,6 +61,7 @@ initWeatherSystem();
 
 // Araç sistemi: önce kurtarma, sonra event listenerlar
 (async () => {
+    await initVehicleDataManager();
     await recoverVehicles();
     initVehicleManager();
 })();
@@ -114,6 +116,12 @@ async function gracefulShutdown(): Promise<void> {
     console.error('[SERVER] Flush zaman aşımı (10s), zorla kapatılıyor...');
     process.exit(1);
   }, 10_000);
+
+  try {
+    await saveAllVehicles();
+  } catch (err) {
+    console.error('[SERVER] Araç kaydetme hatası:', err);
+  }
 
   try {
     await flushAll();

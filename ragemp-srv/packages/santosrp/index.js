@@ -15,6 +15,7 @@ const cmdHandler_1 = require("./cmdHandler");
 const payday_1 = require("./payday");
 const weather_1 = require("./weather");
 const VehicleManager_1 = require("./VehicleManager");
+const VehicleDataManager_1 = require("./VehicleDataManager");
 require("../shared/types"); // PlayerMp augmentation
 let isShuttingDown = false;
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
@@ -51,6 +52,7 @@ setInterval(() => {
 (0, weather_1.initWeatherSystem)();
 // Araç sistemi: önce kurtarma, sonra event listenerlar
 (async () => {
+    await (0, VehicleDataManager_1.initVehicleDataManager)();
     await (0, VehicleManager_1.recoverVehicles)();
     (0, VehicleManager_1.initVehicleManager)();
 })();
@@ -106,6 +108,12 @@ async function gracefulShutdown() {
         console.error('[SERVER] Flush zaman aşımı (10s), zorla kapatılıyor...');
         process.exit(1);
     }, 10_000);
+    try {
+        await (0, VehicleManager_1.saveAllVehicles)();
+    }
+    catch (err) {
+        console.error('[SERVER] Araç kaydetme hatası:', err);
+    }
     try {
         await (0, save_queue_1.flushAll)();
     }

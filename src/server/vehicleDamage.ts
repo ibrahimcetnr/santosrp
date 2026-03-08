@@ -4,20 +4,24 @@
  */
 
 export function initVehicleDamageEvents(): void {
+    // Client tarafı kendi setInterval'i ile hasarı takip ediyor;
+    // server 'vehicleDamage' eventi artık kullanılmıyor.
+
     mp.events.add(
-        'vehicleDamage',
-        (vehicle: VehicleMp, bodyHealthLoss: number, _engineHealthLoss: number) => {
-            if (bodyHealthLoss <= 0) return;
-
-            const driver = mp.players.toArray().find(
-                (p: PlayerMp) => p.vehicle === vehicle && p.seat === 0
-            );
-
-            if (driver) {
-                driver.call('client:measureDeformation', [vehicle, bodyHealthLoss]);
+        'server:receiveVehicleDamage',
+        (player: PlayerMp, vehicle: VehicleMp, damageJson: string) => {
+            try {
+                const data = JSON.parse(damageJson);
+                console.log(
+                    `[VEHICLE_DAMAGE] player=${player.name} vehicle=#${vehicle.getVariable('dbId') ?? vehicle.id}`,
+                    JSON.stringify(data)
+                );
+                // TODO: DB'ye kaydet
+            } catch (err) {
+                console.error('[VEHICLE_DAMAGE] JSON parse hatası:', err);
             }
         }
     );
 
-    console.log('[VEHICLE] Araç hasar event listener aktif.');
+    console.log('[VEHICLE] server:receiveVehicleDamage event listener aktif.');
 }

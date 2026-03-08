@@ -321,4 +321,45 @@ const safeEvent_1 = require("../utils/safeEvent");
     player.outputChatBox(`!{#22c55e}[BAŞARILI] ${target.characterName || target.name} adlı oyuncunun zırhı ${armor} yapıldı.`);
     console.log(`[SETARMOR] ${player.characterName || player.name} set ${target.characterName || target.name} armour to ${armor}`);
 });
+// ─── /gotocar [Plaka] ────────────────────────────────────────────────────────
+(0, cmdHandler_1.registerCommand)({
+    name: '/gotocar',
+    syntax: '[Plaka]',
+    description: 'Belirtilen plakalı aracın yanına ışınlanır',
+    permissions: { admin: 1 },
+}, (player, args) => {
+    if (args.length === 0)
+        return player.outputChatBox('!{#fbbf24}[KULLANIM] /gotocar [Plaka]');
+    const plate = args[0].toUpperCase();
+    const vehicle = mp.vehicles.toArray().find((v) => v.numberPlate?.toUpperCase() === plate);
+    if (!vehicle) {
+        player.outputChatBox(`!{#ef4444}[HATA] "${plate}" plakalı araç şu an dünyada bulunamadı.`);
+        return;
+    }
+    const pos = vehicle.position;
+    player.position = new mp.Vector3(pos.x + 2, pos.y, pos.z);
+    player.outputChatBox(`!{#22c55e}[ADMIN] "${plate}" plakalı aracın yanına ışınlandınız.`);
+    console.log(`[GOTOCAR] ${player.characterName || player.name} -> ${plate}`);
+});
+// ─── /getcar [Plaka] ─────────────────────────────────────────────────────────
+(0, cmdHandler_1.registerCommand)({
+    name: '/getcar',
+    syntax: '[Plaka]',
+    description: 'Belirtilen plakalı aracı yanına çeker',
+    permissions: { admin: 1 },
+}, (player, args) => {
+    if (args.length === 0)
+        return player.outputChatBox('!{#fbbf24}[KULLANIM] /getcar [Plaka]');
+    const plate = args[0].toUpperCase();
+    const vehicle = mp.vehicles.toArray().find((v) => v.numberPlate?.toUpperCase() === plate);
+    if (!vehicle) {
+        player.outputChatBox(`!{#ef4444}[HATA] "${plate}" plakalı araç şu an dünyada bulunamadı.`);
+        return;
+    }
+    const pos = player.position;
+    vehicle.position = new mp.Vector3(pos.x + 3, pos.y, pos.z);
+    vehicle.rotation = new mp.Vector3(0, 0, player.heading);
+    player.outputChatBox(`!{#22c55e}[ADMIN] "${plate}" plakalı araç yanına çekildi.`);
+    console.log(`[GETCAR] ${player.characterName || player.name} pulled ${plate} to their location`);
+});
 //# sourceMappingURL=admin.js.map

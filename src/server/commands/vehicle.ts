@@ -9,6 +9,8 @@
 import { registerCommand } from '../cmdHandler';
 import { isPlayerValid } from '../utils/safeEvent';
 import { query } from '../db';
+import { getVehicleData } from '../VehicleDataManager';
+import { startEngineLoop, stopEngineLoop } from '../VehicleManager';
 
 // ─── /araccikar [Plaka] ───────────────────────────────────────────────────────
 
@@ -80,6 +82,17 @@ registerCommand(
                 dimension:   pos.dimension ?? 0,
             });
             veh.setVariable('dbId', v.id);
+            veh.setVariable('owner_id', player.characterId);
+
+            const vData = getVehicleData(v.model);
+            if (vData) {
+                veh.setVariable('fuel_type', vData.fuel_type);
+                veh.setVariable('max_fuel', vData.fuel_tank_size);
+                veh.setVariable('trunk_size', vData.trunk_size);
+            }
+            veh.setVariable('fuel', vData ? vData.fuel_tank_size : 65);
+            veh.engine = false;
+            veh.setVariable('engineStatus', false);
         } catch (err) {
             console.error('[ARACCIKAR] Spawn hatası:', err);
             if (isPlayerValid(player))
@@ -145,13 +158,19 @@ for (const name of ['/motor', '/m']) {
                 player.outputChatBox('!{#fbbf24}[HATA] Yalnızca sürücü bu komutu kullanabilir.');
                 return;
             }
+            if (vehicle.getVariable('owner_id') !== player.characterId) {
+                player.outputChatBox('!{#ef4444}[HATA] Bu aracın anahtarına sahip değilsiniz.');
+                return;
+            }
 
             vehicle.engine = !vehicle.engine;
             vehicle.setVariable('engineStatus', vehicle.engine);
 
             if (vehicle.engine) {
+                startEngineLoop(vehicle);
                 player.outputChatBox('!{#22c55e}[MOTOR] Motor çalıştırıldı.');
             } else {
+                stopEngineLoop(vehicle.getVariable('dbId') as number);
                 player.outputChatBox('!{#ef4444}[MOTOR] Motor kapatıldı.');
             }
         }
@@ -191,6 +210,11 @@ for (const name of ['/kilit', '/l']) {
                     return;
                 }
                 vehicle = nearest;
+            }
+
+            if (vehicle.getVariable('owner_id') !== player.characterId) {
+                player.outputChatBox('!{#ef4444}[HATA] Bu aracın anahtarına sahip değilsiniz.');
+                return;
             }
 
             vehicle.locked = !vehicle.locked;

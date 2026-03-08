@@ -83,9 +83,18 @@ mp.events.add('render', () => {
     if (!player.vehicle) return;
 
     const hasSeatbelt = !!player.getVariable('seatbelt');
-    if (hasSeatbelt) {
-        mp.game.player.setCanBeKnockedOffVehicle(true);
-        mp.game.player.setConfigFlag(149, true);
-    }
+    // Config Flag 32: Camdan fırlama izni.
+    // Kemer takılıysa (true) fırlamayı kapat (false).
+    // Kemer takılı değilse (false) fırlamayı aç (true).
+    player.setConfigFlag(32, !hasSeatbelt);
+});
+
+// ─── Otomatik Motor Başlatmayı Engelle ───────────────────────────────────────
+
+mp.events.add('playerEnteringVehicle', (vehicle: VehicleMp, seat: number) => {
+    const player = mp.players.local;
+    // 429: CPED_CONFIG_FLAG_DisableStartingVehEngine
+    // Oyuncunun araca binerken GTA'nın motoru otomatik çalıştırmasını engeller.
+    player.setConfigFlag(429, true);
 });
 

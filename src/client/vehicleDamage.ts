@@ -66,6 +66,9 @@ function checkVehicleDamage(): void {
                         mp.gui.chat.push(`!{#ffff00}[GÖÇÜK] Bölge: ${point.name} | Şiddet: ${amount}`);
                     }
                 }
+
+                // Hasar verisini topla ve sunucuya gönder
+                mp.events.call('client:extractVehicleDamage', vehicle);
             }, 150);
         }
 

@@ -806,8 +806,9 @@ mp.events.add("render", () => {
   const player = mp.players.local;
   if (!player.vehicle) return;
   const hasSeatbelt = !!player.getVariable("seatbelt");
-  if (hasSeatbelt) {
-    mp.game.player.setCanBeKnockedOffVehicle(true);
-    mp.game.player.setConfigFlag(149, true);
-  }
+  player.setConfigFlag(32, !hasSeatbelt);
+});
+mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
+  const player = mp.players.local;
+  player.setConfigFlag(429, true);
 });
