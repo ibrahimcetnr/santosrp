@@ -15,6 +15,7 @@ const cmdHandler_1 = require("./cmdHandler");
 const payday_1 = require("./payday");
 const weather_1 = require("./weather");
 require("../shared/types"); // PlayerMp augmentation
+let isShuttingDown = false;
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
 // safeEvent dışında kalan her async kod parçası için güvenlik ağı.
 // 3. parti kütüphane, gelecekte eklenecek cron job vb. için kritik.
@@ -48,6 +49,8 @@ setInterval(() => {
 // Gerçek zamanlı hava & saat sistemini başlat
 (0, weather_1.initWeatherSystem)();
 (0, safeEvent_1.safeEvent)('playerDisconnect', async (player, exitType, reason) => {
+    if (isShuttingDown)
+        return; // Sunucu kapanırken flushAll çalışacağı için çakışmayı önle
     // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.
     // try-catch ile güvenli okuma yapıyoruz.
     let playerName = 'Unknown';
@@ -65,14 +68,32 @@ setInterval(() => {
     }
     if (!charId)
         return;
+    let accId;
+    try {
+        accId = player.accountId;
+    }
+    catch { }
+    // Çıkmadan hemen önce son pozisyonu kuyruğa al
+    try {
+        if ((0, safeEvent_1.isPlayerValid)(player) && player.position) {
+            (0, save_queue_1.queueCharacterSave)({
+                characterId: charId,
+                position: { x: player.position.x, y: player.position.y, z: player.position.z }
+            });
+        }
+    }
+    catch {
+        // Oyuncu koptuğu için pozisyon okunamayabilir, bu normaldir.
+    }
     // flushCharacterSync: veriyi debounce bekletmeden anında DB'ye yazar.
     // player nesnesi geçersizleşmeden önce tamamlanması garanti altındadır.
-    await (0, save_queue_1.flushCharacterSync)(charId);
+    await (0, save_queue_1.flushCharacterSync)(charId, accId);
 });
 // Oyun içi para/pozisyon güncellemeleri kuyruğa alınır (otomatik 30s'de bir kayıt)
 // Kullanım örneği: queueCharacterSave({ characterId: 1, money: 5000, position: player.position })
 // Sunucu kapatılırken tüm kuyruğu kaydet
 async function gracefulShutdown() {
+    isShuttingDown = true;
     console.log('[SERVER] Sunucu kapatılıyor, veriler kaydediliyor...');
     // 10 saniyede flush tamamlanmazsa zorla kapat (systemd TimeoutStopSec aşımını önler)
     const forceExitTimer = setTimeout(() => {
@@ -103,6 +124,13 @@ setInterval(() => {
         try {
             if ((0, safeEvent_1.isPlayerValid)(p) && p.characterId) {
                 p.call('client:hudTime', [timeStr, dateStr]);
+                // Aktif oyuncunun pozisyonunu 30 saniyede bir güvenli şekilde kuyruğa ekle
+                if (p.position) {
+                    (0, save_queue_1.queueCharacterSave)({
+                        characterId: p.characterId,
+                        position: { x: p.position.x, y: p.position.y, z: p.position.z }
+                    });
+                }
             }
         }
         catch { }

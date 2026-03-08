@@ -6,7 +6,7 @@
  * Tüm hesap verileri save-queue üzerinden DB'ye periyodik kaydedilir.
  */
 import { query } from './db';
-import { queueAccountSave, queueCharacterSave } from './save-queue';
+import { queueAccountSave, updateNumericData } from './save-queue';
 import { safeEvent, isPlayerValid } from './utils/safeEvent';
 
 const PAYDAY_TICK_MS    = 60_000; // 1 dakika
@@ -18,7 +18,7 @@ function getRequiredXP(level: number): number {
 }
 
 // ─── Karakter seçildiğinde hesap progression verilerini yükle ────────────────
-safeEvent('server:playCharacter', async (player: PlayerMp, _charId: number) => {
+export async function loadPlayerProgression(player: PlayerMp): Promise<void> {
   const accountId = player.accountId;
   if (!accountId) return;
 
@@ -44,7 +44,7 @@ safeEvent('server:playCharacter', async (player: PlayerMp, _charId: number) => {
   } catch (err) {
     console.error('[PAYDAY] Hesap verisi yüklenemedi:', err);
   }
-});
+}
 
 // ─── Payday tick döngüsü ──────────────────────────────────────────────────────
 export function startPayday(): void {
@@ -62,11 +62,8 @@ export function startPayday(): void {
         if (player.accountPayday >= PAYDAY_THRESHOLD) {
           player.accountPayday = 0;
 
-          // Karakterin banka hesabına maaş ekle (relative DB update)
-          query(
-            'UPDATE characters SET bank = bank + $1 WHERE id = $2',
-            [PAYDAY_SALARY, player.characterId]
-          ).catch(err => console.error('[PAYDAY] Banka güncellenemedi:', err));
+          // Karakterin banka hesabına maaşı güvenli Delta Queue ile ekle
+          updateNumericData(player.characterId, { bank: PAYDAY_SALARY });
 
           // XP ver
           player.accountXp = (player.accountXp ?? 0) + 1;

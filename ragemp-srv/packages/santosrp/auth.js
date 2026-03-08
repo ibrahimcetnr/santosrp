@@ -50,6 +50,7 @@ const db_1 = require("./db");
 const cache_1 = require("./cache");
 const safeEvent_1 = require("./utils/safeEvent");
 const appearance_1 = require("./utils/appearance");
+const payday_1 = require("./payday");
 require("../shared/types"); // PlayerMp augmentation (global declare)
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
 const loginAttempts = new Map();
@@ -122,6 +123,7 @@ function validateInput(player, username, password) {
 // Bir oyuncudan paralel gelen birden fazla server:tryLogin event'inin
 // rate-limit kontrolünü aynı anda geçmesini engeller.
 const loginLocks = new Set();
+const accountLocks = new Set(); // Aynı hesaba farklı IP'lerden eşzamanlı girişi engeller
 // ─── Event Handler'ları ───────────────────────────────────────────────────────
 function registerAuthEvents() {
     // Oyuncu bağlandığında login ekranını göster
@@ -176,6 +178,12 @@ function registerAuthEvents() {
             }
             const cleanUsername = username.trim().toLowerCase();
             const rawPassword = password;
+            if (accountLocks.has(cleanUsername)) {
+                if ((0, safeEvent_1.isPlayerValid)(player))
+                    player.call('client:loginError', ['Bu hesaba şu an giriş yapılıyor, lütfen bekleyin.']);
+                return;
+            }
+            accountLocks.add(cleanUsername);
             // 3. Hesabı cache'den veya DB'den çek
             const account = await (0, cache_1.getCachedAccount)(cleanUsername);
             if (!(0, safeEvent_1.isPlayerValid)(player))
@@ -278,8 +286,11 @@ function registerAuthEvents() {
             }
         }
         finally {
-            // Lock'u her durumda serbest bırak (başarı, hata, return)
+            // Lock'ları her durumda serbest bırak
             loginLocks.delete(rateLimitKey);
+            if (typeof username === 'string') {
+                accountLocks.delete(username.trim().toLowerCase());
+            }
         }
     });
     // Disconnect'te login lock'u temizle (oyuncu login ekranındayken kopabilir)
@@ -355,6 +366,7 @@ function registerAuthEvents() {
         const _dateStr = _now.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
         player.call('client:hudTime', [_timeStr, _dateStr]);
         player.outputChatBox('!{#c9a84c}[SantosRP] !{#ffffff}Başarıyla giriş yaptınız, iyi roller!');
+        (0, payday_1.loadPlayerProgression)(player);
     });
     // ── Karakter yaratma tamamlandığında ────────────────────────────────────────
     const MAX_APPEARANCE_SIZE = 8192; // 8 KB maks appearance JSON boyutu
@@ -377,47 +389,52 @@ function registerAuthEvents() {
             console.warn(`[AUTH] Geçersiz appearance JSON, accountId=${accountId}`);
             return;
         }
-        // Yetkilendirme: karakter bu hesaba ait mi?
-        const accountCheck = await (0, db_1.query)('SELECT account_id FROM characters WHERE id = $1 AND account_id = $2', [charId, accountId]);
-        if (!(0, safeEvent_1.isPlayerValid)(player))
-            return;
-        if (accountCheck.rows.length === 0) {
-            console.warn(`[AUTH] Yetkisiz saveCharacterAppearance: accountId=${accountId}, charId=${charId}`);
-            return;
-        }
-        await (0, db_1.query)('UPDATE characters SET created = 1, char_data = $1 WHERE id = $2', [appearanceStr, charId]);
-        player.characterId = charId;
-        player.call('client:hideLogin');
-        player.dimension = 0;
-        let isFemale = false;
         try {
+            // Yetkilendirme: karakter bu hesaba ait mi?
+            const accountCheck = await (0, db_1.query)('SELECT account_id FROM characters WHERE id = $1 AND account_id = $2', [charId, accountId]);
+            if (!(0, safeEvent_1.isPlayerValid)(player))
+                return;
+            if (accountCheck.rows.length === 0) {
+                console.warn(`[AUTH] Yetkisiz saveCharacterAppearance: accountId=${accountId}, charId=${charId}`);
+                return;
+            }
+            // Hile koruması (Native Crash Önlemi): JSON objesini güvenli bir şekilde doğrula
             const appearance = JSON.parse(appearanceStr);
-            isFemale = appearance.gender === 1;
+            if (typeof appearance !== 'object' || appearance === null)
+                throw new Error('Gecersiz gorunum verisi');
+            await (0, db_1.query)('UPDATE characters SET created = 1, char_data = $1 WHERE id = $2', [appearanceStr, charId]);
+            if (!(0, safeEvent_1.isPlayerValid)(player))
+                return;
+            player.characterId = charId;
+            player.call('client:hideLogin');
+            player.dimension = 0;
+            const isFemale = appearance.gender === 1;
             player.model = mp.joaat(isFemale ? 'mp_f_freemode_01' : 'mp_m_freemode_01');
-            // Sunucu taraflı senkronizasyon — tüm istemcilere otomatik gönderilir
+            // Sunucu taraflı senkronizasyon (Native Crash'e karşı try-catch korumalı)
             (0, appearance_1.applyPlayerAppearance)(player, appearance);
+            player.spawn(new mp.Vector3(-2290.4, 281.3, 169.6));
+            player.health = 100;
+            player.armour = 0;
+            // HUD'u başlat: karakter adını çek
+            const charInfoRes = await (0, db_1.query)('SELECT first_name, last_name, money FROM characters WHERE id = $1', [charId]);
+            if ((0, safeEvent_1.isPlayerValid)(player) && charInfoRes.rows.length > 0) {
+                const ci = charInfoRes.rows[0];
+                const charName = `${ci.first_name} ${ci.last_name}`;
+                player.characterName = charName;
+                player.setVariable('characterName', charName);
+                player.call('client:startHUD', [charName, player.id, ci.money]);
+                const _now2 = new Date();
+                const _timeStr2 = `${String(_now2.getHours()).padStart(2, '0')}:${String(_now2.getMinutes()).padStart(2, '0')}`;
+                const _dateStr2 = _now2.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                player.call('client:hudTime', [_timeStr2, _dateStr2]);
+            }
+            player.outputChatBox('!{#c9a84c}[SantosRP] !{#ffffff}Karakteriniz yaratıldı ve oyuna giriş yaptınız!');
         }
-        catch {
-            player.model = mp.joaat('mp_m_freemode_01');
+        catch (err) {
+            console.error(`[AUTH] saveCharacterAppearance Hatası (charId=${charId}):`, err);
+            if ((0, safeEvent_1.isPlayerValid)(player))
+                player.outputChatBox('!{#ff0000}Karakteriniz kaydedilirken bir hata oluştu.');
         }
-        player.spawn(new mp.Vector3(-2290.4, 281.3, 169.6));
-        player.health = 100;
-        player.armour = 0;
-        // HUD'u başlat: karakter adını çek
-        const charInfoRes = await (0, db_1.query)('SELECT first_name, last_name, money FROM characters WHERE id = $1', [charId]);
-        if ((0, safeEvent_1.isPlayerValid)(player) && charInfoRes.rows.length > 0) {
-            const ci = charInfoRes.rows[0];
-            const charName = `${ci.first_name} ${ci.last_name}`;
-            player.characterName = charName;
-            player.setVariable('characterName', charName);
-            player.call('client:startHUD', [charName, player.id, ci.money]);
-            // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
-            const _now2 = new Date();
-            const _timeStr2 = `${String(_now2.getHours()).padStart(2, '0')}:${String(_now2.getMinutes()).padStart(2, '0')}`;
-            const _dateStr2 = _now2.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            player.call('client:hudTime', [_timeStr2, _dateStr2]);
-        }
-        player.outputChatBox('!{#c9a84c}[SantosRP] !{#ffffff}Karakteriniz yaratıldı ve oyuna giriş yaptınız!');
     });
     console.log('[AUTH] Auth eventleri kaydedildi.');
 }

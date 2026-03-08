@@ -51,7 +51,7 @@ export declare function flushCharacter(characterId: number): Promise<void>;
  * süreç kapanmadan veya pointer geçersiz olmadan önce DB'ye ulaşır.
  * pendingFlushIds'den de temizler — debounce kuyruğunda çift yazma olmaz.
  */
-export declare function flushCharacterSync(characterId: number): Promise<void>;
+export declare function flushCharacterSync(characterId: number, accountId?: number): Promise<void>;
 export declare function requestFlush(characterId: number): void;
 /**
  * Tüm kuyruğu hemen kaydet (sunucu kapatılırken).

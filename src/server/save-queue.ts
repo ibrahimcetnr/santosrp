@@ -109,19 +109,29 @@ export async function flushCharacter(characterId: number): Promise<void> {
  * süreç kapanmadan veya pointer geçersiz olmadan önce DB'ye ulaşır.
  * pendingFlushIds'den de temizler — debounce kuyruğunda çift yazma olmaz.
  */
-export async function flushCharacterSync(characterId: number): Promise<void> {
+export async function flushCharacterSync(characterId: number, accountId?: number): Promise<void> {
   // Varsa bekleyen debounce isteğini iptal et
   pendingFlushIds.delete(characterId);
 
   const data  = saveQueue.get(characterId);
   const delta = charNumericDeltaQueue.get(characterId);
 
-  if (data)  saveQueue.delete(characterId);
-  if (delta) charNumericDeltaQueue.delete(characterId);
+  const accData  = accountId ? accountSaveQueue.get(accountId)         : undefined;
+  const accDelta = accountId ? accountNumericDeltaQueue.get(accountId) : undefined;
+
+  if (data)               saveQueue.delete(characterId);
+  if (delta)              charNumericDeltaQueue.delete(characterId);
+  if (accData && accountId)  accountSaveQueue.delete(accountId);
+  if (accDelta && accountId) accountNumericDeltaQueue.delete(accountId);
 
   await Promise.allSettled([
-    data  ? writeCharacterToDB(data)                           : Promise.resolve(),
-    delta ? writeCharacterNumericDeltaToDB(characterId, delta) : Promise.resolve(),
+    data     ? writeCharacterToDB(data)                                              : Promise.resolve(),
+    delta    ? writeCharacterNumericDeltaToDB(characterId, delta)                    : Promise.resolve(),
+    accData  ? writeAccountToDB(accData)                                             : Promise.resolve(),
+    (accDelta && accountId) ? query(
+      `UPDATE accounts SET xp = xp + $1 WHERE id = $2`,
+      [accDelta.xp ?? 0, accountId]
+    ) : Promise.resolve(),
   ]);
 }
 
@@ -173,7 +183,7 @@ async function flushInChunks(
 ): Promise<void> {
   for (let i = 0; i < entries.length; i += chunkSize) {
     const chunk = entries.slice(i, i + chunkSize);
-    await Promise.allSettled(chunk.map(writeCharacterToDB));
+    await Promise.allSettled(chunk.map(data => writeCharacterToDB(data)));
     // Event loop'a nefes: chunk sonrası zamanı geri ver
     await new Promise<void>(r => setImmediate(r));
   }
@@ -249,7 +259,7 @@ async function writeCharacterToDB(data: CharSaveData, retries = 2): Promise<void
   const updateData: Record<string, unknown> = {};
   if (data.money    !== undefined) updateData.money    = data.money;
   if (data.bank     !== undefined) updateData.bank     = data.bank;
-  if (data.position !== undefined) updateData.position = data.position;
+  if (data.position !== undefined) updateData.position = JSON.stringify(data.position);
   if (data.job      !== undefined) updateData.job      = data.job;
 
   if (Object.keys(updateData).length === 0) return;
@@ -271,11 +281,8 @@ async function writeCharacterToDB(data: CharSaveData, retries = 2): Promise<void
         );
         consecutiveDbErrors++;
         if (consecutiveDbErrors >= CIRCUIT_BREAKER_THRESHOLD) {
-          console.error(
-            `[SAVE-QUEUE] CRITICAL: ${consecutiveDbErrors} ardışık DB hatası — Circuit Breaker devreye girdi! Save queue durduruluyor.`
-          );
-          stopSaveQueue();
-          consecutiveDbErrors = 0;
+          console.error(`[SAVE-QUEUE] CRITICAL: DB bağlantı sorunu. Kuyruk sonraki turda tekrar deneyecek.`);
+          consecutiveDbErrors = 0; // Bir sonraki tur için sıfırla, kuyruğu ÖLDÜRME
         }
       } else {
         // Exponential backoff: 200ms, 400ms...
@@ -340,11 +347,8 @@ async function writeCharacterNumericDeltaToDB(
     consecutiveDbErrors++;
     console.error(`[SAVE-QUEUE] Numeric delta karakter ${characterId} kaydedilemedi:`, err);
     if (consecutiveDbErrors >= CIRCUIT_BREAKER_THRESHOLD) {
-      console.error(
-        `[SAVE-QUEUE] CRITICAL: ${consecutiveDbErrors} ardışık DB hatası — Circuit Breaker devreye girdi! Save queue durduruluyor.`
-      );
-      stopSaveQueue();
-      consecutiveDbErrors = 0;
+      console.error(`[SAVE-QUEUE] CRITICAL: DB bağlantı sorunu. Kuyruk sonraki turda tekrar deneyecek.`);
+      consecutiveDbErrors = 0; // Bir sonraki tur için sıfırla, kuyruğu ÖLDÜRME
     }
   }
 }

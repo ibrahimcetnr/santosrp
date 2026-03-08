@@ -65,7 +65,13 @@ const safeEvent_1 = require("../utils/safeEvent");
         player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu giriş yapmamış.');
         return;
     }
+    const targetLevel = target.adminLevel ?? 0;
     const playerLevel = player.adminLevel ?? 0;
+    // Kendinden yüksek veya eşit yetkili birinin yetkisiyle oynayamaz
+    if (targetLevel >= playerLevel && target !== player) {
+        player.outputChatBox('!{#ef4444}[HATA] Kendi seviyenizden yüksek veya eşit bir yetkiliye işlem yapamazsınız.');
+        return;
+    }
     if (newLevel > playerLevel) {
         player.outputChatBox(`!{#ef4444}[HATA] Kendi seviyenizden (${playerLevel}) yüksek yetki veremezsiniz.`);
         return;
@@ -173,6 +179,8 @@ const safeEvent_1 = require("../utils/safeEvent");
         player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
         return;
     }
+    if (!target.characterId)
+        return player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu henüz karaktere giriş yapmamış.');
     const targetName = target.characterName || target.accountUsername || target.name;
     const adminName = player.characterName || player.accountUsername || player.name;
     // Oyuncuyu bulunduğu konumda canlandır ve sağlığını tam yap
@@ -214,6 +222,8 @@ const safeEvent_1 = require("../utils/safeEvent");
     const target = mp.players.at(parseInt(args[0], 10));
     if (!target || !(0, safeEvent_1.isPlayerValid)(target))
         return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı veya geçersiz ID.');
+    if (!target.characterId)
+        return player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu henüz karaktere giriş yapmamış.');
     const pos = target.position;
     player.position = new mp.Vector3(pos.x + 1.5, pos.y, pos.z);
     player.dimension = target.dimension;
@@ -232,6 +242,8 @@ const safeEvent_1 = require("../utils/safeEvent");
     const target = mp.players.at(parseInt(args[0], 10));
     if (!target || !(0, safeEvent_1.isPlayerValid)(target))
         return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı veya geçersiz ID.');
+    if (!target.characterId)
+        return player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu henüz karaktere giriş yapmamış.');
     if (target === player)
         return player.outputChatBox('!{#ef4444}[HATA] Kendinizi çekemezsiniz.');
     const pos = player.position;
@@ -280,6 +292,8 @@ const safeEvent_1 = require("../utils/safeEvent");
     const hp = parseInt(args[1], 10);
     if (!target || !(0, safeEvent_1.isPlayerValid)(target))
         return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı.');
+    if (!target.characterId)
+        return player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu henüz karaktere giriş yapmamış.');
     if (isNaN(hp) || hp < 0 || hp > 100)
         return player.outputChatBox('!{#ef4444}[HATA] Can 0-100 arasında olmalıdır.');
     target.health = hp;
@@ -299,6 +313,8 @@ const safeEvent_1 = require("../utils/safeEvent");
     const armor = parseInt(args[1], 10);
     if (!target || !(0, safeEvent_1.isPlayerValid)(target))
         return player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı.');
+    if (!target.characterId)
+        return player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu henüz karaktere giriş yapmamış.');
     if (isNaN(armor) || armor < 0 || armor > 100)
         return player.outputChatBox('!{#ef4444}[HATA] Zırh 0-100 arasında olmalıdır.');
     target.armour = armor;

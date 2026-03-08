@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.loadPlayerProgression = loadPlayerProgression;
 exports.startPayday = startPayday;
 /**
  * SantosRP - Payday (Maaş) & Progression Sistemi
@@ -18,7 +19,7 @@ function getRequiredXP(level) {
     return level * 4;
 }
 // ─── Karakter seçildiğinde hesap progression verilerini yükle ────────────────
-(0, safeEvent_1.safeEvent)('server:playCharacter', async (player, _charId) => {
+async function loadPlayerProgression(player) {
     const accountId = player.accountId;
     if (!accountId)
         return;
@@ -43,7 +44,7 @@ function getRequiredXP(level) {
     catch (err) {
         console.error('[PAYDAY] Hesap verisi yüklenemedi:', err);
     }
-});
+}
 // ─── Payday tick döngüsü ──────────────────────────────────────────────────────
 function startPayday() {
     setInterval(() => {
@@ -57,8 +58,8 @@ function startPayday() {
                 player.accountPayday = (player.accountPayday ?? 0) + 1;
                 if (player.accountPayday >= PAYDAY_THRESHOLD) {
                     player.accountPayday = 0;
-                    // Karakterin banka hesabına maaş ekle (relative DB update)
-                    (0, db_1.query)('UPDATE characters SET bank = bank + $1 WHERE id = $2', [PAYDAY_SALARY, player.characterId]).catch(err => console.error('[PAYDAY] Banka güncellenemedi:', err));
+                    // Karakterin banka hesabına maaşı güvenli Delta Queue ile ekle
+                    (0, save_queue_1.updateNumericData)(player.characterId, { bank: PAYDAY_SALARY });
                     // XP ver
                     player.accountXp = (player.accountXp ?? 0) + 1;
                     const currentLevel = player.accountLevel ?? 1;

@@ -12,6 +12,8 @@ import { startPayday } from './payday';
 import { initWeatherSystem } from './weather';
 import '../shared/types'; // PlayerMp augmentation
 
+let isShuttingDown = false;
+
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
 // safeEvent dışında kalan her async kod parçası için güvenlik ağı.
 // 3. parti kütüphane, gelecekte eklenecek cron job vb. için kritik.
@@ -55,6 +57,7 @@ startPayday();
 initWeatherSystem();
 
 safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason: string) => {
+  if (isShuttingDown) return; // Sunucu kapanırken flushAll çalışacağı için çakışmayı önle
   // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.
   // try-catch ile güvenli okuma yapıyoruz.
   let playerName = 'Unknown';
@@ -69,9 +72,24 @@ safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason:
   }
   if (!charId) return;
 
+  let accId: number | undefined;
+  try { accId = player.accountId; } catch {}
+
+  // Çıkmadan hemen önce son pozisyonu kuyruğa al
+  try {
+    if (isPlayerValid(player) && player.position) {
+      queueCharacterSave({
+        characterId: charId,
+        position: { x: player.position.x, y: player.position.y, z: player.position.z }
+      });
+    }
+  } catch {
+    // Oyuncu koptuğu için pozisyon okunamayabilir, bu normaldir.
+  }
+
   // flushCharacterSync: veriyi debounce bekletmeden anında DB'ye yazar.
   // player nesnesi geçersizleşmeden önce tamamlanması garanti altındadır.
-  await flushCharacterSync(charId);
+  await flushCharacterSync(charId, accId);
 });
 
 // Oyun içi para/pozisyon güncellemeleri kuyruğa alınır (otomatik 30s'de bir kayıt)
@@ -79,6 +97,7 @@ safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason:
 
 // Sunucu kapatılırken tüm kuyruğu kaydet
 async function gracefulShutdown(): Promise<void> {
+  isShuttingDown = true;
   console.log('[SERVER] Sunucu kapatılıyor, veriler kaydediliyor...');
 
   // 10 saniyede flush tamamlanmazsa zorla kapat (systemd TimeoutStopSec aşımını önler)
@@ -115,6 +134,13 @@ setInterval(() => {
     try {
       if (isPlayerValid(p) && p.characterId) {
         p.call('client:hudTime', [timeStr, dateStr]);
+        // Aktif oyuncunun pozisyonunu 30 saniyede bir güvenli şekilde kuyruğa ekle
+        if (p.position) {
+          queueCharacterSave({
+            characterId: p.characterId,
+            position: { x: p.position.x, y: p.position.y, z: p.position.z }
+          });
+        }
       }
     } catch {}
   });
