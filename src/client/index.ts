@@ -29,4 +29,3 @@ console.log('[CLIENT] SantosRP client-side başlatıldı!');
 import { initCreator } from './creator';
 initCreator();
 
-import './vehicleDamage';

@@ -1,19 +1,19 @@
 /**
- * SantosRP — Araç Komutları (Server-Side)
- * /araccikar [Plaka] — Park edilmiş aracı çıkarır
- * /parket            — Aracı hızlı park moduna alır (30 dakika zamanlayıcı)
+ * SantosRP — Araç Komutları
+ * /araccikar [Plaka]  — Park edilmiş aracı dünyaya çıkarır
+ * /parket             — Aracı hızlı park moduna alır (30dk zamanlayıcı)
  */
 import { registerCommand } from '../cmdHandler';
 import { isPlayerValid } from '../utils/safeEvent';
 import { query } from '../db';
 
-// ─── /araccikar [Plaka] ────────────────────────────────────────────────────────
+// ─── /araccikar [Plaka] ───────────────────────────────────────────────────────
 
 registerCommand(
     {
         name:        '/araccikar',
         syntax:      '[Plaka]',
-        description: 'Park edilmiş aracınızı çıkarır',
+        description: 'Park edilmiş aracınızı dünyaya çıkarır',
     },
     async (player: PlayerMp, args: string[]) => {
         if (args.length === 0) {
@@ -22,12 +22,13 @@ registerCommand(
         }
 
         if (!player.characterId) {
-            player.outputChatBox('!{#ef4444}[HATA] Bir karakter ile giriş yapmanız gerekiyor.');
+            player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
             return;
         }
 
         const plate = args[0].toUpperCase();
 
+        // Veritabanı sorgusu
         let result;
         try {
             result = await query(
@@ -36,9 +37,8 @@ registerCommand(
             );
         } catch (err) {
             console.error('[ARACCIKAR] DB sorgu hatası:', err);
-            if (isPlayerValid(player)) {
+            if (isPlayerValid(player))
                 player.outputChatBox('!{#ef4444}[HATA] Veritabanı hatası, lütfen tekrar deneyin.');
-            }
             return;
         }
 
@@ -49,60 +49,61 @@ registerCommand(
             return;
         }
 
-        const dbVehicle = result.rows[0];
+        const v = result.rows[0];
 
-        if (!dbVehicle.is_parked) {
+        if (!v.is_parked) {
             player.outputChatBox('!{#fbbf24}[BİLGİ] Bu araç zaten dünyada bulunuyor.');
             return;
         }
 
+        // Pozisyon verisini parse et; bozuksa oyuncunun bulunduğu konuma getir
         let pos: { x: number; y: number; z: number; h?: number; dimension?: number };
         try {
-            pos = typeof dbVehicle.position === 'string'
-                ? JSON.parse(dbVehicle.position)
-                : dbVehicle.position;
+            const raw = typeof v.position === 'string' ? JSON.parse(v.position) : v.position;
+            if (!raw?.x || !raw?.y || !raw?.z) throw new Error('Eksik koordinat');
+            pos = raw;
         } catch {
-            player.outputChatBox('!{#ef4444}[HATA] Araç konum verisi bozuk.');
-            return;
+            const pp = player.position;
+            pos = { x: pp.x, y: pp.y, z: pp.z, h: player.heading, dimension: player.dimension };
+            player.outputChatBox('!{#fbbf24}[BİLGİ] Araç konum verisi bozuktu, araç yanınıza getirildi.');
         }
 
+        // Aracı dünyaya spawn et
         let veh: VehicleMp;
         try {
-            veh = mp.vehicles.new(dbVehicle.model, new mp.Vector3(pos.x, pos.y, pos.z), {
+            veh = mp.vehicles.new(v.model, new mp.Vector3(pos.x, pos.y, pos.z), {
                 heading:     pos.h ?? 0,
-                numberPlate: dbVehicle.plate,
+                numberPlate: v.plate,
                 dimension:   pos.dimension ?? 0,
             });
-            veh.setVariable('dbId', dbVehicle.id);
+            veh.setVariable('dbId', v.id);
         } catch (err) {
-            console.error('[ARACCIKAR] Araç spawn hatası:', err);
-            if (isPlayerValid(player)) {
+            console.error('[ARACCIKAR] Spawn hatası:', err);
+            if (isPlayerValid(player))
                 player.outputChatBox('!{#ef4444}[HATA] Araç spawn edilemedi.');
-            }
             return;
         }
 
+        // Veritabanını güncelle
         try {
-            await query(
-                'UPDATE vehicles SET is_parked = false WHERE id = $1',
-                [dbVehicle.id]
-            );
+            await query('UPDATE vehicles SET is_parked = false WHERE id = $1', [v.id]);
         } catch (err) {
             console.error('[ARACCIKAR] DB güncelleme hatası:', err);
         }
 
         if (!isPlayerValid(player)) return;
         player.outputChatBox(`!{#22c55e}[BAŞARILI] "${plate}" plakalı araç çıkarıldı.`);
+        console.log(`[ARACCIKAR] charId=${player.characterId} aracı çıkardı: ${plate} (dbId=${v.id})`);
     }
 );
 
-// ─── /parket ──────────────────────────────────────────────────────────────────
+// ─── /parket ─────────────────────────────────────────────────────────────────
 
 registerCommand(
     {
         name:        '/parket',
         syntax:      '',
-        description: 'Aracı park moduna alır (araçtan indikten 30 dakika sonra parka çekilir)',
+        description: 'Aracı hızlı park moduna alır (araçtan iner inmez 30dk zamanlayıcı başlar)',
     },
     (player: PlayerMp) => {
         const vehicle = player.vehicle;
@@ -112,14 +113,16 @@ registerCommand(
             return;
         }
 
-        if (player.seat !== 0) {
-            player.outputChatBox('!{#fbbf24}[HATA] Sürücü koltuğunda olmanız gerekiyor.');
+        // RAGE:MP: sürücü koltuğu sayısal değeri -1
+        if ((player.seat as unknown as number) !== 0) {
+            player.outputChatBox('!{#fbbf24}[HATA] Yalnızca sürücü bu komutu kullanabilir.');
             return;
         }
 
         vehicle.setVariable('fast_park', true);
         player.outputChatBox(
-            '!{#00ff00}[SİSTEM] Araç park moduna alındı. Araçtan indiğinizde 30 dakika içinde kalıcı olarak parka çekilecektir.'
+            '!{#00ff00}[SİSTEM] Araç hızlı park moduna alındı. ' +
+            'Araçtan iner inmez 30 dakika içinde otomatik parka çekilecektir.'
         );
     }
 );

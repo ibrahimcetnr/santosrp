@@ -1,1 +1,1 @@
-{"version":3,"file":"VehicleManager.d.ts","sourceRoot":"","sources":["../../src/server/VehicleManager.ts"],"names":[],"mappings":"AA0DA,wBAAsB,eAAe,IAAI,OAAO,CAAC,IAAI,CAAC,CASrD;AAED,wBAAgB,kBAAkB,IAAI,IAAI,CAkDzC"}
+{"version":3,"file":"VehicleManager.d.ts","sourceRoot":"","sources":["../../src/server/VehicleManager.ts"],"names":[],"mappings":"AAsEA;;;GAGG;AACH,wBAAsB,eAAe,IAAI,OAAO,CAAC,IAAI,CAAC,CASrD;AAID,wBAAgB,kBAAkB,IAAI,IAAI,CAgDzC"}

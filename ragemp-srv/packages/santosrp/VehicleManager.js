@@ -4,38 +4,45 @@ exports.recoverVehicles = recoverVehicles;
 exports.initVehicleManager = initVehicleManager;
 /**
  * SantosRP — Vehicle Manager (Server-Side)
- * Otomatik park sistemi: boş kalan araçları zamanlayıcı ile DB'ye kaydeder ve dünyadan siler.
+ * Tüm timer anahtarları dbId (SQL primary key) bazlıdır,
+ * RAGE:MP'nin geçici entity ID'lerine bağımlılık yoktur.
  */
 const db_1 = require("./db");
 const safeEvent_1 = require("./utils/safeEvent");
-const PARK_TIMEOUT_STANDARD = 60 * 60 * 1000; // 60 dakika
-const PARK_TIMEOUT_FAST = 1 * 10 * 1000; // 30 dakika
-/** DB ID (dbId variable) → aktif park zamanlayıcısı */
+// ─── Sabitler ────────────────────────────────────────────────────────────────
+const TIMEOUT_STANDARD = 1 * 15 * 1000; // 60 dakika
+const TIMEOUT_FAST = 1 * 10 * 1000; // 30 dakika  (/parket komutuyla set edilir)
+// ─── State ────────────────────────────────────────────────────────────────────
+/** dbId → aktif park zamanlayıcısı */
 const parkTimers = new Map();
+// ─── Yardımcı Fonksiyonlar ───────────────────────────────────────────────────
+/** Dünyada bu dbId'ye sahip aracı bulur (yoksa undefined döner) */
+function findVehicleByDbId(dbId) {
+    return mp.vehicles.toArray().find((v) => v.getVariable('dbId') === dbId);
+}
+// ─── Park Fonksiyonu ─────────────────────────────────────────────────────────
 async function parkVehicle(dbId) {
     parkTimers.delete(dbId);
-    // Araç hâlâ dünyada mı? Varsa koordinatlarını al ve sil.
-    const vehicle = mp.vehicles.toArray().find((v) => v.getVariable('dbId') === dbId);
+    const vehicle = findVehicleByDbId(dbId);
     try {
-        let posJson = null;
         if (vehicle) {
+            // Araç dünyada: koordinatları al, pozisyon + is_parked güncelle
             const pos = vehicle.position;
-            posJson = JSON.stringify({
+            const posJson = JSON.stringify({
                 x: pos.x,
                 y: pos.y,
                 z: pos.z,
                 h: vehicle.heading,
                 dimension: vehicle.dimension,
             });
-        }
-        if (posJson !== null) {
             await (0, db_1.query)('UPDATE vehicles SET is_parked = true, position = $1 WHERE id = $2', [posJson, dbId]);
         }
         else {
-            // Araç zombileşmiş — pozisyon güncellemeden sadece parka çek
+            // Araç zombileşti: sadece is_parked güncelle, konum dokunma
             await (0, db_1.query)('UPDATE vehicles SET is_parked = true WHERE id = $1', [dbId]);
+            console.warn(`[VEHICLE] Araç #${dbId} dünyada bulunamadı, yalnızca DB güncellendi.`);
         }
-        console.log(`[VEHICLE] Araç #${dbId} DB'ye park edildi${vehicle ? '' : ' (zombi — entity bulunamadı)'}.`);
+        console.log(`[VEHICLE] Araç #${dbId} parka çekildi.`);
     }
     catch (err) {
         console.error(`[VEHICLE] Park DB hatası (dbId: ${dbId}):`, err);
@@ -47,59 +54,65 @@ async function parkVehicle(dbId) {
         catch { }
     }
 }
+// ─── Startup Kurtarma ────────────────────────────────────────────────────────
+/**
+ * Sunucu kapanırken dışarıda kalan araçları temizler.
+ * index.ts'de initVehicleManager() öncesinde await ile çağrılmalı.
+ */
 async function recoverVehicles() {
     try {
         const result = await (0, db_1.query)('UPDATE vehicles SET is_parked = true WHERE is_parked = false');
-        console.log(`[VEHICLE] Kurtarma tamamlandı: ${result.rowCount} araç parka çekildi.`);
+        console.log(`[VEHICLE] Kurtarma: ${result.rowCount} araç parka alındı.`);
     }
     catch (err) {
         console.error('[VEHICLE] Kurtarma sorgusu başarısız:', err);
     }
 }
+// ─── Ana Başlatıcı ───────────────────────────────────────────────────────────
 function initVehicleManager() {
     console.log('[VEHICLE] Araç Yöneticisi başlatılıyor...');
-    try {
-        (0, safeEvent_1.safeEvent)('playerLeaveVehicle', (player, vehicle) => {
-            if (!vehicle || !mp.vehicles.exists(vehicle))
-                return;
-            const dbId = vehicle.getVariable('dbId');
-            if (!dbId)
-                return; // DB kaydı olmayan araç (admin spawn vb.) — izleme
-            // İnen oyuncu dışında araçta başkası kaldı mı?
-            const otherOccupants = mp.players.toArray().filter((p) => p.vehicle === vehicle && p.id !== player.id);
-            if (otherOccupants.length > 0)
-                return;
-            // Zaten bekleyen bir timer varsa yeniden başlatma
-            if (parkTimers.has(dbId))
-                return;
-            const isFastPark = !!vehicle.getVariable('fast_park');
-            const timeout = isFastPark ? PARK_TIMEOUT_FAST : PARK_TIMEOUT_STANDARD;
-            const timer = setTimeout(() => parkVehicle(dbId), timeout);
-            parkTimers.set(dbId, timer);
-            console.log(`[VEHICLE] Araç #${dbId} için ${isFastPark ? 30 : 60}dk park zamanlayıcısı başlatıldı.`);
-        });
-    }
-    catch (err) {
-        console.error('[VEHICLE] playerLeaveVehicle event kaydedilemedi:', err);
-    }
-    try {
-        (0, safeEvent_1.safeEvent)('playerEnterVehicle', (_player, vehicle) => {
-            if (!vehicle)
-                return;
-            const dbId = vehicle.getVariable('dbId');
-            if (!dbId)
-                return;
-            const timer = parkTimers.get(dbId);
-            if (timer !== undefined) {
-                clearTimeout(timer);
-                parkTimers.delete(dbId);
-                console.log(`[VEHICLE] Araç #${dbId} park zamanlayıcısı iptal edildi.`);
-            }
-        });
-    }
-    catch (err) {
-        console.error('[VEHICLE] playerEnterVehicle event kaydedilemedi:', err);
-    }
-    console.log('[VEHICLE] Araç Yöneticisi başlatıldı.');
+    // Araçtan inilince ─────────────────────────────────────────────────────────
+    (0, safeEvent_1.safeEvent)('playerExitVehicle', (player, vehicle) => {
+        console.log('1');
+        if (!vehicle || !mp.vehicles.exists(vehicle))
+            return;
+        console.log('2');
+        // dbId yoksa bu araç takip edilmiyor (admin spawn vb.)
+        const dbId = vehicle.getVariable('dbId');
+        if (!dbId)
+            return;
+        console.log('3');
+        // İnen oyuncu hariç araçta başkası var mı?
+        // (RAGE sync gecikmesine karşı: inen oyuncunun vehicle'ı henüz null olmayabilir)
+        const stillOccupied = mp.players.toArray().some((p) => p.vehicle === vehicle && p.id !== player.id);
+        if (stillOccupied)
+            return;
+        console.log('4');
+        // Bu araç için zaten bekleyen bir timer varsa tekrar başlatma
+        if (parkTimers.has(dbId))
+            return;
+        console.log('5');
+        const isFastPark = !!vehicle.getVariable('fast_park');
+        const timeout = isFastPark ? TIMEOUT_FAST : TIMEOUT_STANDARD;
+        const timer = setTimeout(() => parkVehicle(dbId), timeout);
+        parkTimers.set(dbId, timer);
+        const mins = timeout / 60_000;
+        console.log(`[VEHICLE] Araç #${dbId} için ${mins}dk park zamanlayıcısı başlatıldı.`);
+    });
+    // Araca binilince ──────────────────────────────────────────────────────────
+    (0, safeEvent_1.safeEvent)('playerEnterVehicle', (_player, vehicle) => {
+        if (!vehicle)
+            return;
+        const dbId = vehicle.getVariable('dbId');
+        if (!dbId)
+            return;
+        const timer = parkTimers.get(dbId);
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            parkTimers.delete(dbId);
+            console.log(`[VEHICLE] Araç #${dbId} için park zamanlayıcısı iptal edildi.`);
+        }
+    });
+    console.log('[VEHICLE] Araç Yöneticisi aktif.');
 }
 //# sourceMappingURL=VehicleManager.js.map
