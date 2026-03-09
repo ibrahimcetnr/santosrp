@@ -23,6 +23,7 @@ export function broadcastInRange(player: PlayerMp, range: number, message: strin
   const dimension = player.dimension;
 
   mp.players.forEachInRange(pos, range, dimension, (target: PlayerMp) => {
+    if (!(target as any).handle || !mp.players.exists(target)) return;
     if (isPlayerValid(target) && target.characterId) {
       target.outputChatBox(message);
     }
@@ -56,6 +57,7 @@ export function broadcastFadingMessage(
   const dimension = player.dimension;
 
   mp.players.forEachInRange(pos, maxRange, dimension, (target: PlayerMp) => {
+    if (!(target as any).handle || !mp.players.exists(target)) return;
     if (isPlayerValid(target) && target.characterId) {
       const dist = player.dist(target.position);
       const factor = Math.min(dist / maxRange, 1.0);
@@ -168,10 +170,22 @@ export function initCommandSystem(): void {
 
     const charName = player.characterName || player.accountUsername || player.name;
 
-    // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
-    broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
-      return `${color}${charName} diyor ki: ${clean}`;
-    });
+    // Araç ses yalıtımı: oyuncu araçtaysa tüm camlar kapalıysa mesaj [ARAÇ] prefix alır, menzil %50 azalır
+    const inVehicle = !!player.vehicle;
+    const allWindowsClosed = inVehicle && [0, 1, 2, 3].every(
+      (i) => !player.vehicle!.getVariable(`window_${i}`)
+    );
+
+    if (inVehicle && allWindowsClosed) {
+      broadcastFadingMessage(player, 7.5, '#aaaaaa', '#444444', (color) => {
+        return `${color}[ARAÇ] ${charName}: ${clean}`;
+      });
+    } else {
+      // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
+      broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
+        return `${color}${charName} diyor ki: ${clean}`;
+      });
+    }
 
     console.log(`[CHAT] ${charName}: ${clean}`);
   });

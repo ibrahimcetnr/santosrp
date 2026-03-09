@@ -49,6 +49,8 @@ function broadcastInRange(player, range, message) {
     const pos = player.position;
     const dimension = player.dimension;
     mp.players.forEachInRange(pos, range, dimension, (target) => {
+        if (!target.handle || !mp.players.exists(target))
+            return;
         if ((0, safeEvent_1.isPlayerValid)(target) && target.characterId) {
             target.outputChatBox(message);
         }
@@ -73,6 +75,8 @@ function broadcastFadingMessage(player, maxRange, baseColor, darkColor, formatMs
     const pos = player.position;
     const dimension = player.dimension;
     mp.players.forEachInRange(pos, maxRange, dimension, (target) => {
+        if (!target.handle || !mp.players.exists(target))
+            return;
         if ((0, safeEvent_1.isPlayerValid)(target) && target.characterId) {
             const dist = player.dist(target.position);
             const factor = Math.min(dist / maxRange, 1.0);
@@ -175,10 +179,20 @@ function initCommandSystem() {
         if (!clean)
             return;
         const charName = player.characterName || player.accountUsername || player.name;
-        // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
-        broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
-            return `${color}${charName} diyor ki: ${clean}`;
-        });
+        // Araç ses yalıtımı: oyuncu araçtaysa tüm camlar kapalıysa mesaj [ARAÇ] prefix alır, menzil %50 azalır
+        const inVehicle = !!player.vehicle;
+        const allWindowsClosed = inVehicle && [0, 1, 2, 3].every((i) => !player.vehicle.getVariable(`window_${i}`));
+        if (inVehicle && allWindowsClosed) {
+            broadcastFadingMessage(player, 7.5, '#aaaaaa', '#444444', (color) => {
+                return `${color}[ARAÇ] ${charName}: ${clean}`;
+            });
+        }
+        else {
+            // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
+            broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
+                return `${color}${charName} diyor ki: ${clean}`;
+            });
+        }
         console.log(`[CHAT] ${charName}: ${clean}`);
     });
     // Native bridge: CEF'te mp.invoke('command', 'kick 5 Sebep') → server'da playerCommand eventi

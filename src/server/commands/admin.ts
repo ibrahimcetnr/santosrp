@@ -1,5 +1,7 @@
 import { registerCommand, getAvailableCommands } from '../cmdHandler';
 import { isPlayerValid } from '../utils/safeEvent';
+import { query } from '../db';
+import { getVehicleData } from '../VehicleDataManager';
 
 registerCommand(
   {
@@ -135,13 +137,18 @@ registerCommand(
   {
     name: '/veh',
     syntax: '[Model]',
-    description: 'Araç spawn eder',
+    description: 'Araç spawn eder ve veritabanına ekler',
     permissions: { admin: 8 },
   },
-  (player: PlayerMp, args: string[]) => {
+  async (player: PlayerMp, args: string[]) => {
     if (args.length === 0) {
       player.outputChatBox('!{#fbbf24}[KULLANIM] /veh [Model]');
       player.outputChatBox('!{#94a3b8}Örnek: /veh adder');
+      return;
+    }
+
+    if (!player.characterId) {
+      player.outputChatBox('!{#ef4444}[HATA] Araç eklemek için karakter ile giriş yapmanız gerekiyor.');
       return;
     }
 
@@ -152,22 +159,67 @@ registerCommand(
     const spawnX = pos.x + Math.sin(rad) * 5;
     const spawnY = pos.y + Math.cos(rad) * 5;
 
-    try {
-      mp.vehicles.new(
-        mp.joaat(modelName),
-        new mp.Vector3(spawnX, spawnY, pos.z),
-        {
-          heading: heading,
-          numberPlate: 'ADMIN',
-          color: [[0, 0, 0], [0, 0, 0]],
-        }
-      );
+    // Benzersiz plaka üret: ADM + 5 rastgele alfanümerik karakter
+    const randStr = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const plate = `ADM${randStr}`;
 
-      player.outputChatBox(`!{#22c55e}[BAŞARILI] ${modelName} aracı spawn edildi.`);
-      console.log(`[VEH] ${player.characterName || player.name} spawned ${modelName}`);
+    const posJson = JSON.stringify({
+      x: spawnX,
+      y: spawnY,
+      z: pos.z,
+      h: heading,
+      dimension: player.dimension,
+    });
+
+    const metaJson = JSON.stringify({ fuel: 100, km: 0, dirtLevel: 0 });
+
+    let dbId: number;
+    try {
+      const result = await query(
+        'INSERT INTO vehicles (owner_id, model, plate, is_parked, position, metadata) VALUES ($1, $2, $3, false, $4, $5) RETURNING id',
+        [player.characterId, modelName, plate, posJson, metaJson]
+      );
+      dbId = result.rows[0].id;
     } catch (error) {
+      console.error('[VEH] DB insert hatası:', error);
+      player.outputChatBox('!{#ef4444}[HATA] Araç veritabanına eklenemedi.');
+      return;
+    }
+
+    if (!isPlayerValid(player)) {
+      // Oyuncu çıktıysa eklenen kaydı temizle
+      await query('DELETE FROM vehicles WHERE id = $1', [dbId]).catch(() => {});
+      return;
+    }
+
+    try {
+      const veh = mp.vehicles.new(mp.joaat(modelName), new mp.Vector3(spawnX, spawnY, pos.z), {
+        heading,
+        numberPlate: plate,
+        color: [[0, 0, 0], [0, 0, 0]],
+        dimension: player.dimension,
+      });
+
+      veh.setVariable('dbId', dbId);
+      veh.setVariable('owner_id', player.characterId);
+      veh.engine = false;
+      veh.setVariable('engineStatus', false);
+
+      const vData = getVehicleData(modelName);
+      if (vData) {
+        veh.setVariable('fuel_type', vData.fuel_type);
+        veh.setVariable('max_fuel', vData.fuel_tank_size);
+        veh.setVariable('trunk_size', vData.trunk_size);
+      }
+      veh.setVariable('fuel', vData ? vData.fuel_tank_size : 100);
+
+      player.outputChatBox(`!{#22c55e}[BAŞARILI] ${modelName} aracı spawn edildi (Plaka: ${plate}, DB ID: ${dbId}).`);
+      console.log(`[VEH] ${player.characterName || player.name} spawned ${modelName} → plate=${plate} dbId=${dbId} charId=${player.characterId}`);
+    } catch (error) {
+      // Spawn başarısız oldu, DB kaydını geri al
+      await query('DELETE FROM vehicles WHERE id = $1', [dbId]).catch(() => {});
       player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç modeli.');
-      console.error('[VEH] Invalid model:', modelName, error);
+      console.error('[VEH] Spawn hatası:', modelName, error);
     }
   }
 );
@@ -370,61 +422,129 @@ registerCommand(
   }
 );
 
-// ─── /gotocar [Plaka] ────────────────────────────────────────────────────────
+// ─── /gotocar [ID] ───────────────────────────────────────────────────────────
 
 registerCommand(
   {
     name: '/gotocar',
-    syntax: '[Plaka]',
-    description: 'Belirtilen plakalı aracın yanına ışınlanır',
+    syntax: '[ID]',
+    description: 'Belirtilen DB ID\'li aracın yanına ışınlanır',
     permissions: { admin: 1 },
   },
   (player: PlayerMp, args: string[]) => {
-    if (args.length === 0) return player.outputChatBox('!{#fbbf24}[KULLANIM] /gotocar [Plaka]');
+    if (args.length === 0) return player.outputChatBox('!{#fbbf24}[KULLANIM] /gotocar [ID]');
 
-    const plate = args[0].toUpperCase();
+    const dbId = parseInt(args[0], 10);
+    if (isNaN(dbId)) return player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç ID.');
+
     const vehicle = mp.vehicles.toArray().find(
-      (v: VehicleMp) => v.numberPlate?.toUpperCase() === plate
+      (v: VehicleMp) => v.getVariable('dbId') === dbId
     );
 
     if (!vehicle) {
-      player.outputChatBox(`!{#ef4444}[HATA] "${plate}" plakalı araç şu an dünyada bulunamadı.`);
+      player.outputChatBox(`!{#ef4444}[HATA] #${dbId} ID'li araç şu an dünyada bulunamadı.`);
       return;
     }
 
     const pos = vehicle.position;
     player.position = new mp.Vector3(pos.x + 2, pos.y, pos.z);
-    player.outputChatBox(`!{#22c55e}[ADMIN] "${plate}" plakalı aracın yanına ışınlandınız.`);
-    console.log(`[GOTOCAR] ${player.characterName || player.name} -> ${plate}`);
+    player.dimension = vehicle.dimension;
+    player.outputChatBox(`!{#22c55e}[ADMIN] #${dbId} ID'li aracın (${vehicle.numberPlate}) yanına ışınlandınız.`);
+    console.log(`[GOTOCAR] ${player.characterName || player.name} -> dbId=${dbId}`);
   }
 );
 
-// ─── /getcar [Plaka] ─────────────────────────────────────────────────────────
+/** /weapon [SilahAdı] - Kendine silah ver */
+registerCommand(
+  {
+    name: '/weapon',
+    syntax: '[SilahAdı]',
+    description: 'Kendine belirtilen silahı verir',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /weapon [SilahAdı]');
+      player.outputChatBox('!{#94a3b8}Örnek: /weapon weapon_pistol');
+      return;
+    }
+
+    const weaponName = args[0].toLowerCase().startsWith('weapon_')
+      ? args[0].toLowerCase()
+      : `weapon_${args[0].toLowerCase()}`;
+
+    const weaponHash = mp.joaat(weaponName);
+
+    try {
+      player.giveWeapon(weaponHash, 9999);
+      player.outputChatBox(`!{#22c55e}[BAŞARILI] ${weaponName} silahı verildi (9999 mermi).`);
+      console.log(`[WEAPON] ${player.characterName || player.name} gave themselves ${weaponName}`);
+    } catch (error) {
+      player.outputChatBox('!{#ef4444}[HATA] Geçersiz silah adı.');
+      console.error('[WEAPON] Invalid weapon:', weaponName, error);
+    }
+  }
+);
+
+// ─── /getcar [ID] ────────────────────────────────────────────────────────────
 
 registerCommand(
   {
     name: '/getcar',
-    syntax: '[Plaka]',
-    description: 'Belirtilen plakalı aracı yanına çeker',
+    syntax: '[ID]',
+    description: 'Belirtilen DB ID\'li aracı yanına çeker',
     permissions: { admin: 1 },
   },
   (player: PlayerMp, args: string[]) => {
-    if (args.length === 0) return player.outputChatBox('!{#fbbf24}[KULLANIM] /getcar [Plaka]');
+    if (args.length === 0) return player.outputChatBox('!{#fbbf24}[KULLANIM] /getcar [ID]');
 
-    const plate = args[0].toUpperCase();
+    const dbId = parseInt(args[0], 10);
+    if (isNaN(dbId)) return player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç ID.');
+
     const vehicle = mp.vehicles.toArray().find(
-      (v: VehicleMp) => v.numberPlate?.toUpperCase() === plate
+      (v: VehicleMp) => v.getVariable('dbId') === dbId
     );
 
     if (!vehicle) {
-      player.outputChatBox(`!{#ef4444}[HATA] "${plate}" plakalı araç şu an dünyada bulunamadı.`);
+      player.outputChatBox(`!{#ef4444}[HATA] #${dbId} ID'li araç şu an dünyada bulunamadı.`);
       return;
     }
 
     const pos = player.position;
     vehicle.position = new mp.Vector3(pos.x + 3, pos.y, pos.z);
     vehicle.rotation = new mp.Vector3(0, 0, player.heading);
-    player.outputChatBox(`!{#22c55e}[ADMIN] "${plate}" plakalı araç yanına çekildi.`);
-    console.log(`[GETCAR] ${player.characterName || player.name} pulled ${plate} to their location`);
+    vehicle.dimension = player.dimension;
+    player.outputChatBox(`!{#22c55e}[ADMIN] #${dbId} ID'li araç (${vehicle.numberPlate}) yanına çekildi.`);
+    console.log(`[GETCAR] ${player.characterName || player.name} pulled dbId=${dbId} to their location`);
+  }
+);
+
+// ─── /entercar [ID] ──────────────────────────────────────────────────────────
+
+registerCommand(
+  {
+    name: '/entercar',
+    syntax: '[ID]',
+    description: 'Belirtilen DB ID\'li aracın şoför koltuğuna ışınlanır',
+    permissions: { admin: 1 },
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) return player.outputChatBox('!{#fbbf24}[KULLANIM] /entercar [ID]');
+
+    const dbId = parseInt(args[0], 10);
+    if (isNaN(dbId)) return player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç ID.');
+
+    const vehicle = mp.vehicles.toArray().find(
+      (v: VehicleMp) => v.getVariable('dbId') === dbId
+    );
+
+    if (!vehicle) {
+      player.outputChatBox(`!{#ef4444}[HATA] #${dbId} ID'li araç şu an dünyada bulunamadı.`);
+      return;
+    }
+
+    player.putIntoVehicle(vehicle, 0);
+    player.outputChatBox(`!{#22c55e}[ADMIN] #${dbId} ID'li aracın (${vehicle.numberPlate}) şoför koltuğuna oturtuldunuz.`);
+    console.log(`[ENTERCAR] ${player.characterName || player.name} entered dbId=${dbId}`);
   }
 );

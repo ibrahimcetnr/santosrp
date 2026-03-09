@@ -109,7 +109,9 @@ export function initHUD(): void {
     if (!browser) return;
     try {
       browser.execute(`window.addChatMessage && window.addChatMessage(${JSON.stringify(text)})`);
-    } catch {}
+    } catch (err: any) {
+      mp.console.logError(`[CHAT-FAIL] Svelte'e mesaj gönderilemedi: ${err?.message ?? err}`);
+    }
   });
 
   // T tuşu algılama: render loop'ta her frame INPUT_CHAT (245) kontrol et.

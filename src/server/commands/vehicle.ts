@@ -1,28 +1,30 @@
 /**
  * SantosRP — Araç Komutları
- * /araccikar [Plaka]  — Park edilmiş aracı dünyaya çıkarır
+ * /aracgetir [ID]     — Park edilmiş aracı dünyaya çıkarır (DB ID ile)
+ * /araclarim          — Sahip olunan araçları listeler
  * /parket             — Aracı hızlı park moduna alır (30dk zamanlayıcı)
  * /motor  (/m)        — Motoru aç/kapat
  * /kilit  (/l)        — Kilidi aç/kapat
  * /kemer  (/k)        — Emniyet kemerini tak/çıkar
  */
 import { registerCommand } from '../cmdHandler';
-import { isPlayerValid } from '../utils/safeEvent';
+import { safeEvent, isPlayerValid } from '../utils/safeEvent';
 import { query } from '../db';
 import { getVehicleData } from '../VehicleDataManager';
 import { startEngineLoop, stopEngineLoop } from '../VehicleManager';
 
-// ─── /araccikar [Plaka] ───────────────────────────────────────────────────────
+// ─── /aracgetir [ID] ─────────────────────────────────────────────────────────
 
 registerCommand(
     {
-        name:        '/araccikar',
-        syntax:      '[Plaka]',
-        description: 'Park edilmiş aracınızı dünyaya çıkarır',
+        name:        '/aracgetir',
+        syntax:      '[ID]',
+        description: 'Park edilmiş aracınızı DB ID ile dünyaya çıkarır',
     },
     async (player: PlayerMp, args: string[]) => {
         if (args.length === 0) {
-            player.outputChatBox('!{#fbbf24}[KULLANIM] /araccikar [Plaka]');
+            player.outputChatBox('!{#fbbf24}[KULLANIM] /aracgetir [ID]');
+            player.outputChatBox('!{#94a3b8}Araç ID öğrenmek için /araclarim komutunu kullanın.');
             return;
         }
 
@@ -31,17 +33,21 @@ registerCommand(
             return;
         }
 
-        const plate = args[0].toUpperCase();
+        const dbId = parseInt(args[0], 10);
+        if (isNaN(dbId)) {
+            player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç ID.');
+            return;
+        }
 
-        // Veritabanı sorgusu
+        // Veritabanı sorgusu — sahiplik kontrolü dahil
         let result;
         try {
             result = await query(
-                'SELECT * FROM vehicles WHERE owner_id = $1 AND plate = $2 LIMIT 1',
-                [player.characterId, plate]
+                'SELECT * FROM vehicles WHERE id = $1 AND owner_id = $2 LIMIT 1',
+                [dbId, player.characterId]
             );
         } catch (err) {
-            console.error('[ARACCIKAR] DB sorgu hatası:', err);
+            console.error('[ARACGETIR] DB sorgu hatası:', err);
             if (isPlayerValid(player))
                 player.outputChatBox('!{#ef4444}[HATA] Veritabanı hatası, lütfen tekrar deneyin.');
             return;
@@ -50,7 +56,7 @@ registerCommand(
         if (!isPlayerValid(player)) return;
 
         if (result.rows.length === 0) {
-            player.outputChatBox(`!{#ef4444}[HATA] "${plate}" plakalı araca sahip değilsiniz.`);
+            player.outputChatBox(`!{#ef4444}[HATA] #${dbId} ID'li araca sahip değilsiniz.`);
             return;
         }
 
@@ -94,7 +100,7 @@ registerCommand(
             veh.engine = false;
             veh.setVariable('engineStatus', false);
         } catch (err) {
-            console.error('[ARACCIKAR] Spawn hatası:', err);
+            console.error('[ARACGETIR] Spawn hatası:', err);
             if (isPlayerValid(player))
                 player.outputChatBox('!{#ef4444}[HATA] Araç spawn edilemedi.');
             return;
@@ -104,12 +110,54 @@ registerCommand(
         try {
             await query('UPDATE vehicles SET is_parked = false WHERE id = $1', [v.id]);
         } catch (err) {
-            console.error('[ARACCIKAR] DB güncelleme hatası:', err);
+            console.error('[ARACGETIR] DB güncelleme hatası:', err);
         }
 
         if (!isPlayerValid(player)) return;
-        player.outputChatBox(`!{#22c55e}[BAŞARILI] "${plate}" plakalı araç çıkarıldı.`);
-        console.log(`[ARACCIKAR] charId=${player.characterId} aracı çıkardı: ${plate} (dbId=${v.id})`);
+        player.outputChatBox(`!{#22c55e}[BAŞARILI] #${v.id} ID'li araç (${v.plate}) çıkarıldı.`);
+        console.log(`[ARACGETIR] charId=${player.characterId} aracı çıkardı: dbId=${v.id} plate=${v.plate}`);
+    }
+);
+
+// ─── /araclarim ───────────────────────────────────────────────────────────────
+
+registerCommand(
+    {
+        name:        '/araclarim',
+        syntax:      '',
+        description: 'Sahip olduğunuz araçları listeler',
+    },
+    async (player: PlayerMp) => {
+        if (!player.characterId) {
+            player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
+            return;
+        }
+
+        let result;
+        try {
+            result = await query(
+                'SELECT id, model, plate, is_parked FROM vehicles WHERE owner_id = $1 ORDER BY id',
+                [player.characterId]
+            );
+        } catch (err) {
+            console.error('[ARACLARIM] DB sorgu hatası:', err);
+            if (isPlayerValid(player))
+                player.outputChatBox('!{#ef4444}[HATA] Veritabanı hatası.');
+            return;
+        }
+
+        if (!isPlayerValid(player)) return;
+
+        if (result.rows.length === 0) {
+            player.outputChatBox('!{#94a3b8}[ARAÇLARIM] Kayıtlı aracınız bulunmuyor.');
+            return;
+        }
+
+        player.outputChatBox(`!{#c9a84c}[ARAÇLARIM] Toplam ${result.rows.length} araç:`);
+        for (const v of result.rows) {
+            const durum = v.is_parked ? '!{#ef4444}Parkta' : '!{#22c55e}Dünyada';
+            player.outputChatBox(`!{#94a3b8}  [ID: ${v.id}] !{#ffffff}${v.model} !{#94a3b8}| Plaka: !{#ffffff}${v.plate} !{#94a3b8}| Durum: ${durum}`);
+        }
     }
 );
 
@@ -251,3 +299,175 @@ for (const name of ['/kemer', '/k']) {
         }
     );
 }
+
+// ─── /kapilar [ID] ───────────────────────────────────────────────────────────
+
+registerCommand(
+    {
+        name:        '/kapilar',
+        syntax:      '[ID]',
+        description: 'Araç kapısını açar/kapatır (0=Sürücü 1=Yolcu 2=ArkaSol 3=ArkaSağ 4=Kaput 5=Bagaj)',
+    },
+    (player: PlayerMp, args: string[]) => {
+        if (!player.vehicle) {
+            player.outputChatBox('!{#fbbf24}[HATA] Bir araçta olmanız gerekiyor.');
+            return;
+        }
+        if (args.length === 0) {
+            player.outputChatBox('!{#fbbf24}[KULLANIM] /kapilar [ID]');
+            player.outputChatBox('!{#94a3b8}ID: 0=Sürücü  1=Yolcu  2=ArkaSol  3=ArkaSağ  4=Kaput  5=Bagaj');
+            return;
+        }
+        const doorId = parseInt(args[0], 10);
+        if (isNaN(doorId) || doorId < 0 || doorId > 5) {
+            player.outputChatBox('!{#ef4444}[HATA] Geçersiz kapı ID (0-5).');
+            return;
+        }
+        // Kapı state'ini toggle et
+        const key = `door_${doorId}`;
+        const vehicle = player.vehicle;
+        const isOpen = !!vehicle.getVariable(key);
+        vehicle.setVariable(key, !isOpen);
+        // Client'a bildir
+        player.call('client:vehicle:door', [vehicle.id, doorId, !isOpen]);
+        const doorNames = ['Sürücü kapısı', 'Yolcu kapısı', 'Arka sol kapı', 'Arka sağ kapı', 'Kaput', 'Bagaj'];
+        player.outputChatBox(`!{#22c55e}[ARAÇ] ${doorNames[doorId]} ${!isOpen ? 'açıldı' : 'kapatıldı'}.`);
+    }
+);
+
+// ─── /acam [ID] ──────────────────────────────────────────────────────────────
+
+registerCommand(
+    {
+        name:        '/acam',
+        syntax:      '[ID]',
+        description: 'Araç camını indirir/kaldırır (0=Sürücü 1=Yolcu 2=ArkaSol 3=ArkaSağ)',
+    },
+    (player: PlayerMp, args: string[]) => {
+        if (!player.vehicle) {
+            player.outputChatBox('!{#fbbf24}[HATA] Bir araçta olmanız gerekiyor.');
+            return;
+        }
+        if (args.length === 0) {
+            player.outputChatBox('!{#fbbf24}[KULLANIM] /acam [ID]');
+            player.outputChatBox('!{#94a3b8}ID: 0=Sürücü  1=Yolcu  2=ArkaSol  3=ArkaSağ');
+            return;
+        }
+        const winId = parseInt(args[0], 10);
+        if (isNaN(winId) || winId < 0 || winId > 3) {
+            player.outputChatBox('!{#ef4444}[HATA] Geçersiz cam ID (0-3).');
+            return;
+        }
+        const key = `window_${winId}`;
+        const vehicle = player.vehicle;
+        const isDown = !!vehicle.getVariable(key);
+        vehicle.setVariable(key, !isDown);
+        // Client'a bildir
+        player.call('client:vehicle:window', [vehicle.id, winId, !isDown]);
+        const winNames = ['Sürücü camı', 'Yolcu camı', 'Arka sol cam', 'Arka sağ cam'];
+        player.outputChatBox(`!{#22c55e}[ARAÇ] ${winNames[winId]} ${!isDown ? 'indirildi' : 'kaldırıldı'}.`);
+    }
+);
+
+// ─── /aracbul ────────────────────────────────────────────────────────────────
+
+registerCommand(
+    {
+        name:        '/aracbul',
+        syntax:      '[ID]',
+        description: 'Sahip olduğunuz aracın konumunu haritada gösterir',
+    },
+    async (player: PlayerMp, args: string[]) => {
+        if (!player.characterId) {
+            player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
+            return;
+        }
+
+        if (args.length === 0) {
+            player.outputChatBox('!{#fbbf24}[KULLANIM] /aracbul [ID]');
+            player.outputChatBox('!{#94a3b8}Araç ID öğrenmek için /araclarim kullanın.');
+            return;
+        }
+
+        const dbId = parseInt(args[0], 10);
+        if (isNaN(dbId)) {
+            player.outputChatBox('!{#ef4444}[HATA] Geçersiz araç ID.');
+            return;
+        }
+
+        // Önce dünyada ara
+        const worldVeh = mp.vehicles.toArray().find(
+            (v: VehicleMp) => v.getVariable('dbId') === dbId && v.getVariable('owner_id') === player.characterId
+        );
+
+        let posData: { x: number; y: number; z: number; plate: string };
+
+        if (worldVeh) {
+            const p = worldVeh.position;
+            posData = { x: p.x, y: p.y, z: p.z, plate: worldVeh.numberPlate };
+        } else {
+            // Dünyada yoksa DB'den son konumu al
+            let result;
+            try {
+                result = await query(
+                    'SELECT position, plate FROM vehicles WHERE id = $1 AND owner_id = $2 LIMIT 1',
+                    [dbId, player.characterId]
+                );
+            } catch (err) {
+                console.error('[ARACBUL] DB hatası:', err);
+                if (isPlayerValid(player)) player.outputChatBox('!{#ef4444}[HATA] Veritabanı hatası.');
+                return;
+            }
+
+            if (!isPlayerValid(player)) return;
+
+            if (result.rows.length === 0) {
+                player.outputChatBox(`!{#ef4444}[HATA] #${dbId} ID'li araca sahip değilsiniz.`);
+                return;
+            }
+
+            const v = result.rows[0];
+            let raw;
+            try {
+                raw = typeof v.position === 'string' ? JSON.parse(v.position) : v.position;
+            } catch {
+                player.outputChatBox('!{#ef4444}[HATA] Araç konum verisi okunamadı.');
+                return;
+            }
+
+            if (!raw?.x || !raw?.y || !raw?.z) {
+                player.outputChatBox('!{#fbbf24}[BİLGİ] Araç henüz konumlandırılmamış.');
+                return;
+            }
+
+            posData = { x: raw.x, y: raw.y, z: raw.z, plate: v.plate };
+        }
+
+        player.call('client:vehicle:blip', [posData.x, posData.y, posData.z, posData.plate]);
+        player.outputChatBox(`!{#22c55e}[ARAÇBUL] ${posData.plate} plakalı araç haritada işaretlendi (60 sn).`);
+        console.log(`[ARACBUL] charId=${player.characterId} tracked dbId=${dbId}`);
+    }
+);
+
+// ─── vehicle:indicator event ─────────────────────────────────────────────────
+
+safeEvent('vehicle:indicator', (player: PlayerMp, type: unknown) => {
+    if (!isPlayerValid(player) || !player.vehicle) return;
+    const veh = player.vehicle;
+    if (type === 'left') {
+        const on = !veh.getVariable('indLeft');
+        veh.setVariable('indLeft', on);
+        veh.setVariable('indRight', false);
+        veh.setVariable('indHazard', false);
+    } else if (type === 'right') {
+        const on = !veh.getVariable('indRight');
+        veh.setVariable('indRight', on);
+        veh.setVariable('indLeft', false);
+        veh.setVariable('indHazard', false);
+    } else if (type === 'hazard') {
+        const on = !veh.getVariable('indHazard');
+        veh.setVariable('indHazard', on);
+        veh.setVariable('indLeft', on);
+        veh.setVariable('indRight', on);
+    }
+});

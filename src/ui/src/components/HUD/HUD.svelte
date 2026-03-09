@@ -216,7 +216,12 @@
 
   /** Ham mesajı parse edip $state dizisine ekler (window.addChatMessage + chat:push için) */
   function addChatMessage(raw: string) {
-    pushMessage({ id: Date.now(), type: detectType(raw), segments: parseColors(raw) });
+    try {
+      if (messages.length > 50) messages.shift();
+      pushMessage({ id: Date.now(), type: detectType(raw), segments: parseColors(raw) });
+    } catch (e: any) {
+      window.mp?.trigger('client:debug:ui', e?.message ?? String(e));
+    }
   }
 
   function handleChatKeydown(event: KeyboardEvent) {

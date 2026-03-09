@@ -31,6 +31,14 @@ export function safeEvent(
   handler: (...args: any[]) => Promise<void> | void
 ): void {
   mp.events.add(name, (...args: any[]) => {
+    // İlk argüman player ise veri tipi kontrolü yap
+    const player = args[0];
+    if (player && typeof player === 'object' && 'name' in player) {
+      if (!mp.players.exists(player)) {
+        console.error(`[CHAT-FAIL] SafeEvent reddedildi! Event: ${name} Player: ${player.name}`);
+        return;
+      }
+    }
     try {
       const result = handler(...args);
       if (result && typeof (result as any).catch === 'function') {

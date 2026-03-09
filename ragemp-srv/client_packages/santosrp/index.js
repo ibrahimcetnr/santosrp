@@ -287,7 +287,8 @@ function initHUD() {
     if (!browser) return;
     try {
       browser.execute(`window.addChatMessage && window.addChatMessage(${JSON.stringify(text)})`);
-    } catch {
+    } catch (err) {
+      mp.console.logError(`[CHAT-FAIL] Svelte'e mesaj g\xF6nderilemedi: ${err?.message ?? err}`);
     }
   });
   mp.events.add("render", () => {
@@ -760,6 +761,13 @@ mp.gui.chat.activate(false);
 mp.gui.chat.show(false);
 mp.game.ui.displayHud(false);
 mp.game.ui.displayRadar(false);
+mp.game.audio.startAudioScene("CHARACTER_CHANGE_IN_SKY_SCENE");
+setInterval(() => mp.game.invoke("0xF4F2C0D4EE209E20"), 29500);
+mp.game.gameplay.setFadeOutAfterDeath(false);
+mp.game.player.setHealthRechargeMultiplier(0);
+mp.game.controls.setControlNormal(27, 86, 1);
+mp.game.vehicle.defaultEngineBehaviour = false;
+mp.players.local.setConfigFlag(429, true);
 registerClientAuthEvents();
 initHUD();
 initNametags();
@@ -804,11 +812,208 @@ mp.events.add("playerEnterVehicle", (vehicle, _seat) => {
 });
 mp.events.add("render", () => {
   const player = mp.players.local;
-  if (!player.vehicle) return;
-  const hasSeatbelt = !!player.getVariable("seatbelt");
-  player.setConfigFlag(32, !hasSeatbelt);
+  if (mp.game.invoke("0x475768A975D5AD17", player.handle, 6)) {
+    mp.game.controls.disableControlAction(0, 140, true);
+    mp.game.controls.disableControlAction(0, 141, true);
+    mp.game.controls.disableControlAction(0, 142, true);
+  }
+  if (player.isTypingInTextChat) {
+    mp.game.controls.disableControlAction(0, 199, true);
+    mp.game.controls.disableControlAction(0, 200, true);
+  }
+  player.setStealthMovement(false, "0");
+  if (player.vehicle) {
+    mp.game.audio.setRadioToStationName("OFF");
+    mp.game.audio.setUserRadioControlEnabled(false);
+    const hasSeatbelt = !!player.getVariable("seatbelt");
+    player.setConfigFlag(32, !hasSeatbelt);
+    if (parkingBrakeOn) {
+      try {
+        mp.game.invoke("0x684785568EF26A22", player.vehicle.handle, true);
+      } catch {
+      }
+    }
+    if (cruiseActive) {
+      if (!player.vehicle.engine) {
+        cruiseActive = false;
+      } else if (mp.game.controls.isControlPressed(0, 72)) {
+        cruiseActive = false;
+        mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Fren alg\u0131land\u0131 \u2014 devre d\u0131\u015F\u0131.");
+      } else {
+        try {
+          mp.game.controls.disableControlAction(0, 71, true);
+          const vel = player.vehicle.velocity;
+          const cur = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2);
+          const diff = cruiseTargetSpeed - cur;
+          if (diff > 0.3) {
+            mp.game.controls.setControlNormal(0, 71, Math.min(diff * 0.6, 1));
+          }
+        } catch {
+        }
+      }
+    }
+    try {
+      const indLeft = !!player.vehicle.getVariable("indLeft");
+      const indRight = !!player.vehicle.getVariable("indRight");
+      mp.game.vehicle.setVehicleIndicatorLights(player.vehicle.handle, 0, indLeft);
+      mp.game.vehicle.setVehicleIndicatorLights(player.vehicle.handle, 1, indRight);
+    } catch {
+    }
+  }
 });
 mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
   const player = mp.players.local;
   player.setConfigFlag(429, true);
+});
+mp.events.add("client:vehicle:door", (vehicleId, doorId, open) => {
+  const vehicle = mp.vehicles.at(vehicleId);
+  if (!vehicle) return;
+  try {
+    if (open) {
+      mp.game.vehicle.setVehicleDoorOpen(vehicle.handle, doorId, false, false);
+    } else {
+      mp.game.vehicle.setVehicleDoorShut(vehicle.handle, doorId, false);
+    }
+  } catch {
+  }
+});
+mp.events.add("client:vehicle:window", (vehicleId, winId, down) => {
+  const vehicle = mp.vehicles.at(vehicleId);
+  if (!vehicle) return;
+  try {
+    if (down) {
+      mp.game.vehicle.rollDownWindow(vehicle.handle, winId);
+    } else {
+      mp.game.vehicle.rollUpWindow(vehicle.handle, winId);
+    }
+  } catch {
+  }
+});
+mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
+  try {
+    const blip = mp.blips.new(66, new mp.Vector3(x, y, z), {
+      name: `Ara\xE7: ${plate}`,
+      color: 3,
+      scale: 1,
+      shortRange: false
+    });
+    let removed = false;
+    const removeBlip = () => {
+      if (removed) return;
+      removed = true;
+      try {
+        blip.destroy();
+      } catch {
+      }
+      clearInterval(proximityCheck);
+    };
+    const proximityCheck = setInterval(() => {
+      if (!blip) {
+        removeBlip();
+        return;
+      }
+      try {
+        const pPos = mp.players.local.position;
+        const dist = Math.sqrt(
+          Math.pow(pPos.x - x, 2) + Math.pow(pPos.y - y, 2) + Math.pow(pPos.z - z, 2)
+        );
+        if (dist < 30) removeBlip();
+      } catch {
+        removeBlip();
+      }
+    }, 2e3);
+    setTimeout(removeBlip, 6e4);
+  } catch {
+  }
+});
+var parkingBrakeOn = false;
+var cruiseActive = false;
+var cruiseTargetSpeed = 0;
+mp.events.add("playerExitVehicle", (_vehicle, _seat) => {
+  parkingBrakeOn = false;
+  if (cruiseActive) {
+    cruiseActive = false;
+    mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Ara\xE7tan \xE7\u0131k\u0131ld\u0131 \u2014 devre d\u0131\u015F\u0131.");
+  }
+});
+mp.keys.bind(88, true, () => {
+  if (isUIOpen() || !mp.players.local.vehicle) return;
+  parkingBrakeOn = !parkingBrakeOn;
+  mp.events.call("chat:push", parkingBrakeOn ? "!{#ef4444}[EL FREN\u0130] \xC7ekildi." : "!{#94a3b8}[EL FREN\u0130] B\u0131rak\u0131ld\u0131.");
+});
+mp.keys.bind(190, true, () => {
+  if (isUIOpen()) return;
+  const veh = mp.players.local.vehicle;
+  if (!veh || !veh.engine) return;
+  if (!cruiseActive) {
+    const vel = veh.velocity;
+    const spd = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2);
+    if (spd < 3) {
+      mp.events.call("chat:push", "!{#fbbf24}[HIZ SAB\u0130TLEY\u0130C\u0130] En az 10 km/h h\u0131zda olun.");
+      return;
+    }
+    cruiseActive = true;
+    cruiseTargetSpeed = spd;
+    mp.events.call("chat:push", `!{#3b82f6}[HIZ SAB\u0130TLEY\u0130C\u0130] ${Math.round(spd * 3.6)} km/h h\u0131z\u0131nda sabitlendi.`);
+  } else {
+    cruiseActive = false;
+    mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Devre d\u0131\u015F\u0131.");
+  }
+});
+mp.keys.bind(219, true, () => {
+  if (isUIOpen() || !mp.players.local.vehicle) return;
+  mp.events.callRemote("vehicle:indicator", "left");
+});
+mp.keys.bind(221, true, () => {
+  if (isUIOpen() || !mp.players.local.vehicle) return;
+  mp.events.callRemote("vehicle:indicator", "right");
+});
+mp.keys.bind(80, true, () => {
+  if (isUIOpen() || !mp.players.local.vehicle) return;
+  mp.events.callRemote("vehicle:indicator", "hazard");
+});
+mp.keys.bind(81, true, () => {
+  if (isUIOpen() || !mp.players.local.vehicle) return;
+  const veh = mp.players.local.vehicle;
+  try {
+    mp.game.invoke("0x1FD09E7390A74D54", veh.handle, true);
+    setTimeout(() => {
+      try {
+        mp.game.invoke("0x1FD09E7390A74D54", veh.handle, false);
+      } catch {
+      }
+    }, 400);
+  } catch {
+  }
+});
+var indicatorTimers = /* @__PURE__ */ new Map();
+mp.events.add("entityStreamIn", (entity) => {
+  if (entity.type !== "vehicle") return;
+  const veh = entity;
+  const key = veh.id;
+  if (indicatorTimers.has(key)) return;
+  const timer = setInterval(() => {
+    if (!mp.vehicles.exists(veh)) {
+      clearInterval(timer);
+      indicatorTimers.delete(key);
+      return;
+    }
+    try {
+      const left = !!veh.getVariable("indLeft");
+      const right = !!veh.getVariable("indRight");
+      mp.game.vehicle.setVehicleIndicatorLights(veh.handle, 0, left);
+      mp.game.vehicle.setVehicleIndicatorLights(veh.handle, 1, right);
+    } catch {
+    }
+  }, 150);
+  indicatorTimers.set(key, timer);
+});
+mp.events.add("entityStreamOut", (entity) => {
+  if (entity.type !== "vehicle") return;
+  const key = entity.id;
+  const timer = indicatorTimers.get(key);
+  if (timer) {
+    clearInterval(timer);
+    indicatorTimers.delete(key);
+  }
 });
