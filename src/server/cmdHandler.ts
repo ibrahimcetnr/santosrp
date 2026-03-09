@@ -22,8 +22,11 @@ export function broadcastInRange(player: PlayerMp, range: number, message: strin
   const pos = player.position;
   const dimension = player.dimension;
 
-  mp.players.forEachInRange(pos, range, dimension, (target: PlayerMp) => {
-    if (!(target as any).handle || !mp.players.exists(target)) return;
+  // 3. parametre olan dimension'ı sildik
+  mp.players.forEachInRange(pos, range, (target: PlayerMp) => {
+    // Dimension kontrolünü manuel yapıyoruz
+    if (target.dimension !== dimension) return; 
+    
     if (isPlayerValid(target) && target.characterId) {
       target.outputChatBox(message);
     }
@@ -56,8 +59,11 @@ export function broadcastFadingMessage(
   const pos = player.position;
   const dimension = player.dimension;
 
-  mp.players.forEachInRange(pos, maxRange, dimension, (target: PlayerMp) => {
-    if (!(target as any).handle || !mp.players.exists(target)) return;
+  // 3. parametre olan dimension'ı sildik
+  mp.players.forEachInRange(pos, maxRange, (target: PlayerMp) => {
+    // Dimension kontrolünü manuel yapıyoruz
+    if (target.dimension !== dimension) return; 
+
     if (isPlayerValid(target) && target.characterId) {
       const dist = player.dist(target.position);
       const factor = Math.min(dist / maxRange, 1.0);

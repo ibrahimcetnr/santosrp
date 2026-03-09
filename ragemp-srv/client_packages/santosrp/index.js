@@ -832,6 +832,11 @@ mp.events.add("render", () => {
         mp.game.invoke("0x684785568EF26A22", player.vehicle.handle, true);
       } catch {
       }
+    } else {
+      try {
+        mp.game.invoke("0x684785568EF26A22", player.vehicle.handle, false);
+      } catch {
+      }
     }
     if (cruiseActive) {
       if (!player.vehicle.engine) {

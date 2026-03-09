@@ -48,8 +48,10 @@ const commands = new Map();
 function broadcastInRange(player, range, message) {
     const pos = player.position;
     const dimension = player.dimension;
-    mp.players.forEachInRange(pos, range, dimension, (target) => {
-        if (!target.handle || !mp.players.exists(target))
+    // 3. parametre olan dimension'ı sildik
+    mp.players.forEachInRange(pos, range, (target) => {
+        // Dimension kontrolünü manuel yapıyoruz
+        if (target.dimension !== dimension)
             return;
         if ((0, safeEvent_1.isPlayerValid)(target) && target.characterId) {
             target.outputChatBox(message);
@@ -74,8 +76,10 @@ function lerpColor(color1, color2, factor) {
 function broadcastFadingMessage(player, maxRange, baseColor, darkColor, formatMsg) {
     const pos = player.position;
     const dimension = player.dimension;
-    mp.players.forEachInRange(pos, maxRange, dimension, (target) => {
-        if (!target.handle || !mp.players.exists(target))
+    // 3. parametre olan dimension'ı sildik
+    mp.players.forEachInRange(pos, maxRange, (target) => {
+        // Dimension kontrolünü manuel yapıyoruz
+        if (target.dimension !== dimension)
             return;
         if ((0, safeEvent_1.isPlayerValid)(target) && target.characterId) {
             const dist = player.dist(target.position);

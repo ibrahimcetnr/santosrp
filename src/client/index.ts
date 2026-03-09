@@ -135,6 +135,9 @@ mp.events.add('render', () => {
         // El freni — her frame uygulanmalı
         if (parkingBrakeOn) {
             try { mp.game.invoke('0x684785568EF26A22', player.vehicle.handle, true); } catch {}
+        }else 
+        {
+            try { mp.game.invoke('0x684785568EF26A22', player.vehicle.handle, false); } catch {}
         }
 
         // Hız sabitleyici
