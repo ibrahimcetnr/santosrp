@@ -32,25 +32,13 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pool = void 0;
 exports.disconnectDB = disconnectDB;
 exports.query = query;
 const pg_1 = require("pg");
 const dotenv = __importStar(require("dotenv"));
-const path = __importStar(require("path"));
-// RAGE:MP root directory is ragemp-srv/, so .env is at ../.env
-dotenv.config({ path: path.resolve(__dirname, '../../../../.env') }); // It will be in ragemp-srv/packages/santosrp/db.js so ../../../../ is maybe not reliable?
-const fs_1 = __importDefault(require("fs"));
-if (fs_1.default.existsSync(path.resolve(process.cwd(), '../.env'))) {
-    dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
-}
-else {
-    dotenv.config(); // fallback
-}
+dotenv.config();
 const connectionString = process.env.DATABASE_URL;
 exports.pool = new pg_1.Pool({
     connectionString,
@@ -72,13 +60,6 @@ async function disconnectDB() {
 }
 // Kolay sorgu fonksiyonu
 async function query(text, params) {
-    const client = await exports.pool.connect();
-    try {
-        const res = await client.query(text, params);
-        return res;
-    }
-    finally {
-        client.release();
-    }
+    return await exports.pool.query(text, params);
 }
 //# sourceMappingURL=db.js.map

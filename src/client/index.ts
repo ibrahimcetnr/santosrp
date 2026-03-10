@@ -81,11 +81,14 @@ mp.keys.bind(75, true, () => {
 
 mp.events.add('entityStreamIn', (entity: EntityMp) => {
     if(entity.type == 'vehicle'){
-        let eStatus = entity.getVariable('engine') as boolean;
-        if(eStatus === undefined) eStatus = false;
-        setTimeout((_: any) => {
-            (entity as VehicleMp).setEngineOn(eStatus, true, true);
-        }, 100);
+        const eStatus = entity.getVariable('engine') as boolean | undefined;
+        // Sunucu tarafında değer sadece tanımlıysa senkronize et;
+        // tanımsızsa motoru zorla kapatma — stream desync önlemi
+        if (eStatus !== undefined) {
+            setTimeout((_: any) => {
+                (entity as VehicleMp).setEngineOn(eStatus, true, true);
+            }, 100);
+        }
     }
 });
 
@@ -120,20 +123,14 @@ mp.events.add('render', () => {
 
     // Araç içindeyse
     if (player.vehicle) {
-        // Radyoyu zorla kapat
-        mp.game.audio.setRadioToStationName("OFF");
-        mp.game.audio.setUserRadioControlEnabled(false);
-
         // Config Flag 32: Camdan fırlama izni.
         const hasSeatbelt = !!player.getVariable('seatbelt');
         player.setConfigFlag(32, !hasSeatbelt);
 
-        // El freni — her frame uygulanmalı
-        if (parkingBrakeOn) {
-            try { mp.game.invoke('0x684785568EF26A22', player.vehicle.handle, true); } catch {}
-        } else {
-            try { mp.game.invoke('0x684785568EF26A22', player.vehicle.handle, false); } catch {}
-        }
+        // Radyo değiştirme tuşlarını engelle (FPS drop önlemi — radyoyu araca binişte tek seferlik kapatıyoruz)
+        mp.game.controls.disableControlAction(0, 19, true);  // INPUT_VEH_NEXT_RADIO_TRACK
+        mp.game.controls.disableControlAction(0, 20, true);  // INPUT_VEH_PREV_RADIO_TRACK
+        mp.game.controls.disableControlAction(0, 134, true); // INPUT_VEH_RADIO_WHEEL
 
         // Hız sabitleyici
         if (cruiseActive) {
@@ -161,11 +158,14 @@ mp.events.add('render', () => {
 
 // ─── Otomatik Motor Başlatmayı ve Kapatmayı Engelle ─────────────────────────
 
-// Araca BİNERKEN: Otomatik çalıştırmayı engelle ve inerken açık bırakma izni ver
+// Araca BİNERKEN: Otomatik çalıştırmayı engelle ve radyoyu bir kez kapat
 mp.events.add('playerEnteringVehicle', (vehicle: VehicleMp, seat: number) => {
     const player = mp.players.local;
     player.setConfigFlag(429, true); // GTA'nın motoru otomatik çalıştırmasını engelle
     player.setConfigFlag(241, true); // GTA'nın araçtan inerken motoru otomatik kapatmasını engelle
+    // Radyoyu araca binişte tek seferlik kapat (render döngüsünde çağırmak yerine)
+    mp.game.audio.setRadioToStationName('OFF');
+    mp.game.audio.setUserRadioControlEnabled(false);
 });
 
 // Araçtan tamamen ÇIKILDIĞINDA (Animasyon bittiğinde)
@@ -292,11 +292,13 @@ mp.events.add('client:vehicle:blip', (x: number, y: number, z: number, plate: st
 
         // Oyuncu yaklaşırsa (30m) veya 60 saniye sonra blip'i sil
         let removed = false;
+        let timeoutHandle: ReturnType<typeof setTimeout>;
         const removeBlip = () => {
             if (removed) return;
             removed = true;
             try { blip.destroy(); } catch {}
             clearInterval(proximityCheck);
+            clearTimeout(timeoutHandle); // Memory leak önlemi: erken silinirse timer'ı da temizle
         };
 
         const proximityCheck = setInterval(() => {
@@ -312,7 +314,7 @@ mp.events.add('client:vehicle:blip', (x: number, y: number, z: number, plate: st
             } catch { removeBlip(); }
         }, 2000);
 
-        setTimeout(removeBlip, 60_000);
+        timeoutHandle = setTimeout(removeBlip, 60_000);
     } catch {}
 });
 
@@ -321,6 +323,31 @@ mp.events.add('client:vehicle:blip', (x: number, y: number, z: number, plate: st
 let parkingBrakeOn    = false;
 let cruiseActive      = false;
 let cruiseTargetSpeed = 0; // m/s
+
+// El freni — render döngüsü yerine 500ms hafif interval ile uygula (performans optimizasyonu)
+setInterval(() => {
+    const _p = mp.players.local;
+    if (_p.vehicle && _p.vehicle.handle) {
+        try {
+            mp.game.invoke('0x684785568EF26A22', _p.vehicle.handle, parkingBrakeOn);
+        } catch {}
+    }
+}, 500);
+
+// Global Araç Sinyal Kontrolü — stream'deki tüm araçlara 150ms aralıkla uygula (bellek sızıntısı önlemi)
+setInterval(() => {
+    mp.vehicles.streamed.forEach((veh: VehicleMp) => {
+        if (!veh || !veh.handle) return;
+        const indHazard = !!veh.getVariable('indHazard');
+        if (indHazard) {
+            veh.setIndicatorLights(1, true);
+            veh.setIndicatorLights(0, true);
+        } else {
+            veh.setIndicatorLights(1, !!veh.getVariable('indLeft'));
+            veh.setIndicatorLights(0, !!veh.getVariable('indRight'));
+        }
+    });
+}, 150);
 
 // Araçtan çıkınca sıfırla
 mp.events.add('playerExitVehicle', (_vehicle: VehicleMp, _seat: number) => {

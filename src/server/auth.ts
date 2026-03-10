@@ -107,6 +107,7 @@ function validateInput(
 // rate-limit kontrolünü aynı anda geçmesini engeller.
 const loginLocks = new Set<string>();
 const accountLocks = new Set<string>(); // Aynı hesaba farklı IP'lerden eşzamanlı girişi engeller
+const activeAccounts = new Map<number, PlayerMp>(); // O(1) duplicate session kontrolü
 
 // ─── Event Handler'ları ───────────────────────────────────────────────────────
 export function registerAuthEvents(): void {
@@ -148,6 +149,7 @@ export function registerAuthEvents(): void {
     }
     loginLocks.add(rateLimitKey);
 
+    const lockKey = String(username).trim().toLowerCase();
     try {
       console.log(`[AUTH] Login denemesi: ${String(username).slice(0, 32)} (${player.ip})`);
 
@@ -168,14 +170,14 @@ export function registerAuthEvents(): void {
         return;
       }
 
-      const cleanUsername = (username as string).trim().toLowerCase();
+      const cleanUsername = lockKey;
       const rawPassword   = password as string;
 
-      if (accountLocks.has(cleanUsername)) {
+      if (accountLocks.has(lockKey)) {
         if (isPlayerValid(player)) player.call('client:loginError', ['Bu hesaba şu an giriş yapılıyor, lütfen bekleyin.']);
         return;
       }
-      accountLocks.add(cleanUsername);
+      accountLocks.add(lockKey);
 
       // 3. Hesabı cache'den veya DB'den çek
       const account = await getCachedAccount(cleanUsername);
@@ -213,17 +215,8 @@ export function registerAuthEvents(): void {
         return;
       }
 
-      // 5. Duplicate session kontrolü — bu accountId başka bir oyuncuda açık mı?
-      // mp.players.toArray() ile tüm aktif oyuncuları tara; mevcut oyuncuyu hariç tut.
-      const duplicateSession = mp.players.toArray().find((p: PlayerMp) => {
-        try {
-          return p !== player && p.accountId === account.id;
-        } catch {
-          return false; // Pointer geçersiz — bu oyuncuyu atla
-        }
-      });
-
-      if (duplicateSession) {
+      // 5. Duplicate session kontrolü — O(1) Map sorgusu ile
+      if (activeAccounts.has(account.id)) {
         if (isPlayerValid(player)) {
           player.call('client:loginError', [
             'Bu hesap zaten başka bir oturumda açık. Lütfen daha sonra tekrar deneyin.'
@@ -246,6 +239,9 @@ export function registerAuthEvents(): void {
       player.accountId       = account.id;
       player.adminLevel      = account.adminLevel;
       player.accountUsername = account.username;
+
+      // O(1) session tracking: başarılı giriş sonrası Map'e kaydet
+      activeAccounts.set(account.id, player);
 
       clearAttempts(rateLimitKey);
       console.log(`[AUTH] Başarılı giriş: ${cleanUsername} (accountId: ${account.id})`);
@@ -295,9 +291,7 @@ export function registerAuthEvents(): void {
     } finally {
       // Lock'ları her durumda serbest bırak
       loginLocks.delete(rateLimitKey);
-      if (typeof username === 'string') {
-        accountLocks.delete((username as string).trim().toLowerCase());
-      }
+      accountLocks.delete(lockKey);
     }
   });
 
@@ -309,6 +303,12 @@ export function registerAuthEvents(): void {
     } catch {
       // Pointer geçersiz — önemli değil
     }
+
+    // activeAccounts temizliği
+    try {
+      const accId = player.accountId;
+      if (accId != null) activeAccounts.delete(accId);
+    } catch { /* Pointer geçersiz */ }
   });
 
   // ── Karakter seçilip oyuna başlandığında ────────────────────────────────────
@@ -419,6 +419,27 @@ export function registerAuthEvents(): void {
       // Hile koruması (Native Crash Önlemi): JSON objesini güvenli bir şekilde doğrula
       const appearance = JSON.parse(appearanceStr);
       if (typeof appearance !== 'object' || appearance === null) throw new Error('Gecersiz gorunum verisi');
+
+      // Appearance Sanity Check — sınır dışı ID'ler native crash'e yol açabilir
+      const _MAX_COMP_ID = 500;
+      const _appearanceNumFields = ['hair', 'eyebrow', 'beard', 'chest', 'torso', 'legs', 'shoes'] as const;
+      for (const _field of _appearanceNumFields) {
+        const _val = (appearance as Record<string, unknown>)[_field];
+        if (typeof _val === 'number' && _val > _MAX_COMP_ID) {
+          console.warn(`[AUTH] Appearance sanity check başarısız: ${_field}=${_val} (>${_MAX_COMP_ID}), accountId=${accountId}`);
+          if (isPlayerValid(player)) player.outputChatBox('!{#ff0000}Geçersiz karakter görünümü verisi reddedildi.');
+          return;
+        }
+      }
+      if (Array.isArray(appearance.components)) {
+        for (const _comp of appearance.components) {
+          if (_comp && typeof _comp.drawable === 'number' && _comp.drawable > _MAX_COMP_ID) {
+            console.warn(`[AUTH] Appearance sanity check başarısız: component.drawable=${_comp.drawable}, accountId=${accountId}`);
+            if (isPlayerValid(player)) player.outputChatBox('!{#ff0000}Geçersiz karakter görünümü verisi reddedildi.');
+            return;
+          }
+        }
+      }
 
       await query('UPDATE characters SET created = 1, char_data = $1 WHERE id = $2', [appearanceStr, charId]);
 

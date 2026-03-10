@@ -124,6 +124,7 @@ function validateInput(player, username, password) {
 // rate-limit kontrolünü aynı anda geçmesini engeller.
 const loginLocks = new Set();
 const accountLocks = new Set(); // Aynı hesaba farklı IP'lerden eşzamanlı girişi engeller
+const activeAccounts = new Map(); // O(1) duplicate session kontrolü
 // ─── Event Handler'ları ───────────────────────────────────────────────────────
 function registerAuthEvents() {
     // Oyuncu bağlandığında login ekranını göster
@@ -159,6 +160,7 @@ function registerAuthEvents() {
             return;
         }
         loginLocks.add(rateLimitKey);
+        const lockKey = String(username).trim().toLowerCase();
         try {
             console.log(`[AUTH] Login denemesi: ${String(username).slice(0, 32)} (${player.ip})`);
             // 1. Rate limit kontrolü
@@ -176,14 +178,14 @@ function registerAuthEvents() {
                 recordFailedAttempt(rateLimitKey);
                 return;
             }
-            const cleanUsername = username.trim().toLowerCase();
+            const cleanUsername = lockKey;
             const rawPassword = password;
-            if (accountLocks.has(cleanUsername)) {
+            if (accountLocks.has(lockKey)) {
                 if ((0, safeEvent_1.isPlayerValid)(player))
                     player.call('client:loginError', ['Bu hesaba şu an giriş yapılıyor, lütfen bekleyin.']);
                 return;
             }
-            accountLocks.add(cleanUsername);
+            accountLocks.add(lockKey);
             // 3. Hesabı cache'den veya DB'den çek
             const account = await (0, cache_1.getCachedAccount)(cleanUsername);
             if (!(0, safeEvent_1.isPlayerValid)(player))
@@ -215,17 +217,8 @@ function registerAuthEvents() {
                 console.log(`[AUTH] Hatalı şifre: ${cleanUsername}`);
                 return;
             }
-            // 5. Duplicate session kontrolü — bu accountId başka bir oyuncuda açık mı?
-            // mp.players.toArray() ile tüm aktif oyuncuları tara; mevcut oyuncuyu hariç tut.
-            const duplicateSession = mp.players.toArray().find((p) => {
-                try {
-                    return p !== player && p.accountId === account.id;
-                }
-                catch {
-                    return false; // Pointer geçersiz — bu oyuncuyu atla
-                }
-            });
-            if (duplicateSession) {
+            // 5. Duplicate session kontrolü — O(1) Map sorgusu ile
+            if (activeAccounts.has(account.id)) {
                 if ((0, safeEvent_1.isPlayerValid)(player)) {
                     player.call('client:loginError', [
                         'Bu hesap zaten başka bir oturumda açık. Lütfen daha sonra tekrar deneyin.'
@@ -243,6 +236,8 @@ function registerAuthEvents() {
             player.accountId = account.id;
             player.adminLevel = account.adminLevel;
             player.accountUsername = account.username;
+            // O(1) session tracking: başarılı giriş sonrası Map'e kaydet
+            activeAccounts.set(account.id, player);
             clearAttempts(rateLimitKey);
             console.log(`[AUTH] Başarılı giriş: ${cleanUsername} (accountId: ${account.id})`);
             // Oyuncuyu karakter seçim ekranı için izole bir boyuta al (diğer oyuncuları görmemesi için)
@@ -288,9 +283,7 @@ function registerAuthEvents() {
         finally {
             // Lock'ları her durumda serbest bırak
             loginLocks.delete(rateLimitKey);
-            if (typeof username === 'string') {
-                accountLocks.delete(username.trim().toLowerCase());
-            }
+            accountLocks.delete(lockKey);
         }
     });
     // Disconnect'te login lock'u temizle (oyuncu login ekranındayken kopabilir)
@@ -302,6 +295,13 @@ function registerAuthEvents() {
         catch {
             // Pointer geçersiz — önemli değil
         }
+        // activeAccounts temizliği
+        try {
+            const accId = player.accountId;
+            if (accId != null)
+                activeAccounts.delete(accId);
+        }
+        catch { /* Pointer geçersiz */ }
     });
     // ── Karakter seçilip oyuna başlandığında ────────────────────────────────────
     (0, safeEvent_1.safeEvent)('server:playCharacter', async (player, charId) => {
@@ -403,6 +403,28 @@ function registerAuthEvents() {
             const appearance = JSON.parse(appearanceStr);
             if (typeof appearance !== 'object' || appearance === null)
                 throw new Error('Gecersiz gorunum verisi');
+            // Appearance Sanity Check — sınır dışı ID'ler native crash'e yol açabilir
+            const _MAX_COMP_ID = 500;
+            const _appearanceNumFields = ['hair', 'eyebrow', 'beard', 'chest', 'torso', 'legs', 'shoes'];
+            for (const _field of _appearanceNumFields) {
+                const _val = appearance[_field];
+                if (typeof _val === 'number' && _val > _MAX_COMP_ID) {
+                    console.warn(`[AUTH] Appearance sanity check başarısız: ${_field}=${_val} (>${_MAX_COMP_ID}), accountId=${accountId}`);
+                    if ((0, safeEvent_1.isPlayerValid)(player))
+                        player.outputChatBox('!{#ff0000}Geçersiz karakter görünümü verisi reddedildi.');
+                    return;
+                }
+            }
+            if (Array.isArray(appearance.components)) {
+                for (const _comp of appearance.components) {
+                    if (_comp && typeof _comp.drawable === 'number' && _comp.drawable > _MAX_COMP_ID) {
+                        console.warn(`[AUTH] Appearance sanity check başarısız: component.drawable=${_comp.drawable}, accountId=${accountId}`);
+                        if ((0, safeEvent_1.isPlayerValid)(player))
+                            player.outputChatBox('!{#ff0000}Geçersiz karakter görünümü verisi reddedildi.');
+                        return;
+                    }
+                }
+            }
             await (0, db_1.query)('UPDATE characters SET created = 1, char_data = $1 WHERE id = $2', [appearanceStr, charId]);
             if (!(0, safeEvent_1.isPlayerValid)(player))
                 return;

@@ -125,16 +125,23 @@ mp.events.add("client:previewCharacter", (modelName, charDataJson) => {
     const ANIM_DICT = "nm@test_character_creator";
     const ANIM_CLIP = "test_idle_ad";
     mp.game.streaming.requestAnimDict(ANIM_DICT);
+    let _tAttempts = 0;
     const t = setInterval(() => {
+      _tAttempts++;
       if (mp.game.streaming.hasAnimDictLoaded(ANIM_DICT)) {
         clearInterval(t);
         mp.game.task.playAnim(p.handle, ANIM_DICT, ANIM_CLIP, 8, -8, -1, 1, 0, false, false, false);
+      } else if (_tAttempts >= 100) {
+        clearInterval(t);
+        console.error("[AUTH-CLIENT] Animasyon y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + ANIM_DICT);
       }
     }, 50);
   } else {
     const modelHash = mp.game.joaat(modelName);
     mp.game.streaming.requestModel(modelHash);
+    let _wmAttempts = 0;
     const waitModel = setInterval(() => {
+      _wmAttempts++;
       if (mp.game.streaming.hasModelLoaded(modelHash)) {
         clearInterval(waitModel);
         p.freezePosition(false);
@@ -146,12 +153,20 @@ mp.events.add("client:previewCharacter", (modelName, charDataJson) => {
         const ANIM_DICT = "nm@test_character_creator";
         const ANIM_CLIP = "test_idle_ad";
         mp.game.streaming.requestAnimDict(ANIM_DICT);
+        let _waAttempts = 0;
         const waitAnim = setInterval(() => {
+          _waAttempts++;
           if (mp.game.streaming.hasAnimDictLoaded(ANIM_DICT)) {
             clearInterval(waitAnim);
             mp.game.task.playAnim(p.handle, ANIM_DICT, ANIM_CLIP, 8, -8, -1, 1, 0, false, false, false);
+          } else if (_waAttempts >= 100) {
+            clearInterval(waitAnim);
+            console.error("[AUTH-CLIENT] Animasyon y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + ANIM_DICT);
           }
         }, 50);
+      } else if (_wmAttempts >= 100) {
+        clearInterval(waitModel);
+        console.error("[AUTH-CLIENT] Karakter modeli y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + modelName);
       }
     }, 50);
   }
@@ -805,11 +820,12 @@ mp.keys.bind(75, true, () => {
 });
 mp.events.add("entityStreamIn", (entity) => {
   if (entity.type == "vehicle") {
-    let eStatus = entity.getVariable("engine");
-    if (eStatus === void 0) eStatus = false;
-    setTimeout((_) => {
-      entity.setEngineOn(eStatus, true, true);
-    }, 100);
+    const eStatus = entity.getVariable("engine");
+    if (eStatus !== void 0) {
+      setTimeout((_) => {
+        entity.setEngineOn(eStatus, true, true);
+      }, 100);
+    }
   }
 });
 mp.events.addDataHandler("engine", (entity, eStatus) => {
@@ -830,21 +846,11 @@ mp.events.add("render", () => {
   }
   player.setStealthMovement(false, "0");
   if (player.vehicle) {
-    mp.game.audio.setRadioToStationName("OFF");
-    mp.game.audio.setUserRadioControlEnabled(false);
     const hasSeatbelt = !!player.getVariable("seatbelt");
     player.setConfigFlag(32, !hasSeatbelt);
-    if (parkingBrakeOn) {
-      try {
-        mp.game.invoke("0x684785568EF26A22", player.vehicle.handle, true);
-      } catch {
-      }
-    } else {
-      try {
-        mp.game.invoke("0x684785568EF26A22", player.vehicle.handle, false);
-      } catch {
-      }
-    }
+    mp.game.controls.disableControlAction(0, 19, true);
+    mp.game.controls.disableControlAction(0, 20, true);
+    mp.game.controls.disableControlAction(0, 134, true);
     if (cruiseActive) {
       if (!player.vehicle.engine) {
         cruiseActive = false;
@@ -870,6 +876,8 @@ mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
   const player = mp.players.local;
   player.setConfigFlag(429, true);
   player.setConfigFlag(241, true);
+  mp.game.audio.setRadioToStationName("OFF");
+  mp.game.audio.setUserRadioControlEnabled(false);
 });
 mp.events.add("playerExitVehicle", (vehicle, _seat) => {
   parkingBrakeOn = false;
@@ -965,6 +973,7 @@ mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
       shortRange: false
     });
     let removed = false;
+    let timeoutHandle;
     const removeBlip = () => {
       if (removed) return;
       removed = true;
@@ -973,6 +982,7 @@ mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
       } catch {
       }
       clearInterval(proximityCheck);
+      clearTimeout(timeoutHandle);
     };
     const proximityCheck = setInterval(() => {
       if (!blip) {
@@ -989,13 +999,35 @@ mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
         removeBlip();
       }
     }, 2e3);
-    setTimeout(removeBlip, 6e4);
+    timeoutHandle = setTimeout(removeBlip, 6e4);
   } catch {
   }
 });
 var parkingBrakeOn = false;
 var cruiseActive = false;
 var cruiseTargetSpeed = 0;
+setInterval(() => {
+  const _p = mp.players.local;
+  if (_p.vehicle && _p.vehicle.handle) {
+    try {
+      mp.game.invoke("0x684785568EF26A22", _p.vehicle.handle, parkingBrakeOn);
+    } catch {
+    }
+  }
+}, 500);
+setInterval(() => {
+  mp.vehicles.streamed.forEach((veh) => {
+    if (!veh || !veh.handle) return;
+    const indHazard = !!veh.getVariable("indHazard");
+    if (indHazard) {
+      veh.setIndicatorLights(1, true);
+      veh.setIndicatorLights(0, true);
+    } else {
+      veh.setIndicatorLights(1, !!veh.getVariable("indLeft"));
+      veh.setIndicatorLights(0, !!veh.getVariable("indRight"));
+    }
+  });
+}, 150);
 mp.events.add("playerExitVehicle", (_vehicle, _seat) => {
   parkingBrakeOn = false;
   if (cruiseActive) {

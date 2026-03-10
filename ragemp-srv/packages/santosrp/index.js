@@ -134,20 +134,25 @@ setInterval(() => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const dateStr = now.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    let _idx = 0;
     mp.players.forEach((p) => {
-        try {
-            if ((0, safeEvent_1.isPlayerValid)(p) && p.characterId) {
-                p.call('client:hudTime', [timeStr, dateStr]);
-                // Aktif oyuncunun pozisyonunu 30 saniyede bir güvenli şekilde kuyruğa ekle
-                if (p.position) {
-                    (0, save_queue_1.queueCharacterSave)({
-                        characterId: p.characterId,
-                        position: { x: p.position.x, y: p.position.y, z: p.position.z }
-                    });
+        const _delay = _idx * 100; // Her oyuncu arasına 100ms gecikme — lag spike önlemi
+        setTimeout(() => {
+            try {
+                if ((0, safeEvent_1.isPlayerValid)(p) && p.characterId) {
+                    p.call('client:hudTime', [timeStr, dateStr]);
+                    // Aktif oyuncunun pozisyonunu 30 saniyede bir güvenli şekilde kuyruğa ekle
+                    if (p.position) {
+                        (0, save_queue_1.queueCharacterSave)({
+                            characterId: p.characterId,
+                            position: { x: p.position.x, y: p.position.y, z: p.position.z }
+                        });
+                    }
                 }
             }
-        }
-        catch { }
+            catch { }
+        }, _delay);
+        _idx++;
     });
 }, 30_000);
 // ── Chat & Komut Sistemi ──────────────────────────────────────────────────────
