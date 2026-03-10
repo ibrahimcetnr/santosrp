@@ -119,7 +119,7 @@ export function initHUD(): void {
   mp.events.add('render', () => {
     if (!hudActive) return;
     try {
-      mp.game.controls.disableControlAction(255, 245, true);
+      mp.game.controls.disableControlAction(0, 245, true);
     } catch {}
   });
 

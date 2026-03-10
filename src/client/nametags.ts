@@ -15,7 +15,6 @@ class PlayerData {
 
 // Havuzlar
 const playerCache = new Map<number, PlayerData>();
-const streamedPlayers = new Set<PlayerMp>();
 let streamedArray: PlayerMp[] = [];
 let slicingIndex = 0;
 let frameCount = 0;
@@ -67,15 +66,14 @@ function getOrCreateData(id: number): PlayerData {
 
 mp.events.add('entityStreamIn', (entity) => {
     if (entity.type === 'player') {
-        streamedPlayers.add(entity as PlayerMp);
-        streamedArray = Array.from(streamedPlayers);
+        streamedArray.push(entity as PlayerMp);
     }
 });
 
 mp.events.add('entityStreamOut', (entity) => {
     if (entity.type === 'player') {
-        streamedPlayers.delete(entity as PlayerMp);
-        streamedArray = Array.from(streamedPlayers);
+        const idx = streamedArray.indexOf(entity as PlayerMp);
+        if (idx !== -1) streamedArray.splice(idx, 1);
         playerCache.delete(entity.remoteId);
     }
 });

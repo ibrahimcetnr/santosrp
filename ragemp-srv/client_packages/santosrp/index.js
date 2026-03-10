@@ -320,7 +320,7 @@ function initHUD() {
   mp.events.add("render", () => {
     if (!hudActive) return;
     try {
-      mp.game.controls.disableControlAction(255, 245, true);
+      mp.game.controls.disableControlAction(0, 245, true);
     } catch {
     }
   });
@@ -359,7 +359,6 @@ var PlayerData = class {
   }
 };
 var playerCache = /* @__PURE__ */ new Map();
-var streamedPlayers = /* @__PURE__ */ new Set();
 var streamedArray = [];
 var slicingIndex = 0;
 var frameCount = 0;
@@ -404,14 +403,13 @@ function getOrCreateData(id) {
 }
 mp.events.add("entityStreamIn", (entity) => {
   if (entity.type === "player") {
-    streamedPlayers.add(entity);
-    streamedArray = Array.from(streamedPlayers);
+    streamedArray.push(entity);
   }
 });
 mp.events.add("entityStreamOut", (entity) => {
   if (entity.type === "player") {
-    streamedPlayers.delete(entity);
-    streamedArray = Array.from(streamedPlayers);
+    const idx = streamedArray.indexOf(entity);
+    if (idx !== -1) streamedArray.splice(idx, 1);
     playerCache.delete(entity.remoteId);
   }
 });

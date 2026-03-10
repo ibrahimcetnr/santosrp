@@ -57,8 +57,6 @@ setInterval(() => {
     (0, VehicleManager_1.initVehicleManager)();
 })();
 (0, safeEvent_1.safeEvent)('playerDisconnect', async (player, exitType, reason) => {
-    if (isShuttingDown)
-        return; // Sunucu kapanırken flushAll çalışacağı için çakışmayı önle
     // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.
     // try-catch ile güvenli okuma yapıyoruz.
     let playerName = 'Unknown';
@@ -81,7 +79,7 @@ setInterval(() => {
         accId = player.accountId;
     }
     catch { }
-    // Çıkmadan hemen önce son pozisyonu kuyruğa al
+    // Çıkmadan hemen önce son pozisyonu kuyruğa al (isShuttingDown olsa bile kuyruğa girilmeli)
     try {
         if ((0, safeEvent_1.isPlayerValid)(player) && player.position) {
             (0, save_queue_1.queueCharacterSave)({
@@ -94,7 +92,9 @@ setInterval(() => {
         // Oyuncu koptuğu için pozisyon okunamayabilir, bu normaldir.
     }
     // flushCharacterSync: veriyi debounce bekletmeden anında DB'ye yazar.
-    // player nesnesi geçersizleşmeden önce tamamlanması garanti altındadır.
+    // Sunucu kapanıyorsa flushAll zaten tüm kuyruğu yazacak — çakışmayı önle.
+    if (isShuttingDown)
+        return;
     await (0, save_queue_1.flushCharacterSync)(charId, accId);
 });
 // Oyun içi para/pozisyon güncellemeleri kuyruğa alınır (otomatik 30s'de bir kayıt)

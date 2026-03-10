@@ -68,7 +68,6 @@ initWeatherSystem();
 
 
 safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason: string) => {
-  if (isShuttingDown) return; // Sunucu kapanırken flushAll çalışacağı için çakışmayı önle
   // C++ pointer crash disconnect'lerinde player.name erişimi segfault'a yol açabilir.
   // try-catch ile güvenli okuma yapıyoruz.
   let playerName = 'Unknown';
@@ -86,7 +85,7 @@ safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason:
   let accId: number | undefined;
   try { accId = player.accountId; } catch {}
 
-  // Çıkmadan hemen önce son pozisyonu kuyruğa al
+  // Çıkmadan hemen önce son pozisyonu kuyruğa al (isShuttingDown olsa bile kuyruğa girilmeli)
   try {
     if (isPlayerValid(player) && player.position) {
       queueCharacterSave({
@@ -99,7 +98,8 @@ safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason:
   }
 
   // flushCharacterSync: veriyi debounce bekletmeden anında DB'ye yazar.
-  // player nesnesi geçersizleşmeden önce tamamlanması garanti altındadır.
+  // Sunucu kapanıyorsa flushAll zaten tüm kuyruğu yazacak — çakışmayı önle.
+  if (isShuttingDown) return;
   await flushCharacterSync(charId, accId);
 });
 

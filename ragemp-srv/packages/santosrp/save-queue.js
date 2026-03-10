@@ -232,13 +232,15 @@ async function writeCharacterToDB(data, retries = 2) {
         }
         catch (err) {
             if (attempt === retries) {
-                // Son deneme de başarısız — logla ve bırak
-                console.error(`[SAVE-QUEUE] Karakter ${data.characterId} ${retries + 1} denemede kaydedilemedi:`, err);
+                // Son deneme de başarısız — veriyi kaybetmemek için kuyruğa geri ekle
+                console.error(`[SAVE-QUEUE] Karakter ${data.characterId} ${retries + 1} denemede kaydedilemedi, kuyruğa geri ekleniyor:`, err);
                 consecutiveDbErrors++;
                 if (consecutiveDbErrors >= CIRCUIT_BREAKER_THRESHOLD) {
                     console.error(`[SAVE-QUEUE] CRITICAL: DB bağlantı sorunu. Kuyruk sonraki turda tekrar deneyecek.`);
-                    consecutiveDbErrors = 0; // Bir sonraki tur için sıfırla, kuyruğu ÖLDÜRME
+                    consecutiveDbErrors = 0;
                 }
+                // Dead-letter koruması: veriyi ana kuyruğa geri ekle
+                queueCharacterSave(data);
             }
             else {
                 // Exponential backoff: 200ms, 400ms...
@@ -300,11 +302,17 @@ async function writeCharacterNumericDeltaToDB(characterId, delta) {
     }
     catch (err) {
         consecutiveDbErrors++;
-        console.error(`[SAVE-QUEUE] Numeric delta karakter ${characterId} kaydedilemedi:`, err);
+        console.error(`[SAVE-QUEUE] Numeric delta karakter ${characterId} kaydedilemedi, kuyruğa geri ekleniyor:`, err);
         if (consecutiveDbErrors >= CIRCUIT_BREAKER_THRESHOLD) {
             console.error(`[SAVE-QUEUE] CRITICAL: DB bağlantı sorunu. Kuyruk sonraki turda tekrar deneyecek.`);
-            consecutiveDbErrors = 0; // Bir sonraki tur için sıfırla, kuyruğu ÖLDÜRME
+            consecutiveDbErrors = 0;
         }
+        // Dead-letter koruması: deltayı tekrar kuyruğa ekle
+        const existing = charNumericDeltaQueue.get(characterId) ?? {};
+        charNumericDeltaQueue.set(characterId, {
+            money: (existing.money ?? 0) + (delta.money ?? 0),
+            bank: (existing.bank ?? 0) + (delta.bank ?? 0),
+        });
     }
 }
 /**
@@ -313,41 +321,50 @@ async function writeCharacterNumericDeltaToDB(characterId, delta) {
 function startSaveQueue() {
     if (saveTimer)
         return;
+    let isFlushing = false; // Overlap (kuyruk çakışması) engelleme lock'u
     saveTimer = setInterval(async () => {
-        const charEntries = saveQueue.size > 0 ? Array.from(saveQueue.values()) : [];
-        if (charEntries.length > 0)
-            saveQueue.clear();
-        const accEntries = accountSaveQueue.size > 0 ? Array.from(accountSaveQueue.values()) : [];
-        if (accEntries.length > 0)
-            accountSaveQueue.clear();
-        if (charEntries.length > 0) {
-            console.log(`[SAVE-QUEUE] Periyodik kaydetme başladı: ${charEntries.length} karakter`);
-            try {
-                await flushInChunks(charEntries);
+        if (isFlushing)
+            return; // Önceki flush henüz tamamlanmadı, bu turu atla
+        isFlushing = true;
+        try {
+            const charEntries = saveQueue.size > 0 ? Array.from(saveQueue.values()) : [];
+            if (charEntries.length > 0)
+                saveQueue.clear();
+            const accEntries = accountSaveQueue.size > 0 ? Array.from(accountSaveQueue.values()) : [];
+            if (accEntries.length > 0)
+                accountSaveQueue.clear();
+            if (charEntries.length > 0) {
+                console.log(`[SAVE-QUEUE] Periyodik kaydetme başladı: ${charEntries.length} karakter`);
+                try {
+                    await flushInChunks(charEntries);
+                }
+                catch (err) {
+                    console.error('[SAVE-QUEUE] Periyodik karakter flush hatası:', err);
+                }
             }
-            catch (err) {
-                console.error('[SAVE-QUEUE] Periyodik karakter flush hatası:', err);
+            // Periyodik numeric delta flush
+            const charDeltaEntries = Array.from(charNumericDeltaQueue.entries());
+            if (charDeltaEntries.length > 0) {
+                charNumericDeltaQueue.clear();
+                try {
+                    await Promise.allSettled(charDeltaEntries.map(([id, delta]) => writeCharacterNumericDeltaToDB(id, delta)));
+                }
+                catch (err) {
+                    console.error('[SAVE-QUEUE] Periyodik numeric delta flush hatası:', err);
+                }
+            }
+            if (accEntries.length > 0) {
+                console.log(`[SAVE-QUEUE] Periyodik hesap kaydetme: ${accEntries.length} hesap`);
+                try {
+                    await Promise.allSettled(accEntries.map(writeAccountToDB));
+                }
+                catch (err) {
+                    console.error('[SAVE-QUEUE] Periyodik hesap flush hatası:', err);
+                }
             }
         }
-        // Periyodik numeric delta flush
-        const charDeltaEntries = Array.from(charNumericDeltaQueue.entries());
-        if (charDeltaEntries.length > 0) {
-            charNumericDeltaQueue.clear();
-            try {
-                await Promise.allSettled(charDeltaEntries.map(([id, delta]) => writeCharacterNumericDeltaToDB(id, delta)));
-            }
-            catch (err) {
-                console.error('[SAVE-QUEUE] Periyodik numeric delta flush hatası:', err);
-            }
-        }
-        if (accEntries.length > 0) {
-            console.log(`[SAVE-QUEUE] Periyodik hesap kaydetme: ${accEntries.length} hesap`);
-            try {
-                await Promise.allSettled(accEntries.map(writeAccountToDB));
-            }
-            catch (err) {
-                console.error('[SAVE-QUEUE] Periyodik hesap flush hatası:', err);
-            }
+        finally {
+            isFlushing = false;
         }
     }, SAVE_INTERVAL);
     console.log(`[SAVE-QUEUE] Başlatıldı (${SAVE_INTERVAL / 1000}s aralık).`);

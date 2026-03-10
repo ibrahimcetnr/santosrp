@@ -41,6 +41,9 @@ export function startEngineLoop(vehicle: VehicleMp): void {
             return;
         }
 
+        // Motor kapalıysa yakıt tüketme, sadece bu turu atla
+        if (!vehicle.getVariable('engineStatus')) return;
+
         const vel   = vehicle.velocity;
         const speed = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2); // m/s
 
@@ -143,34 +146,44 @@ export async function saveAllVehicles(): Promise<void> {
     const vehicles = mp.vehicles.toArray() as VehicleMp[];
     if (vehicles.length === 0) return;
 
-    const saves = vehicles.map(async (vehicle) => {
-        const dbId = vehicle.getVariable('dbId') as number | undefined;
-        if (!dbId) return;
-        try {
-            const pos = vehicle.position;
-            const posJson = JSON.stringify({
-                x:         pos.x,
-                y:         pos.y,
-                z:         pos.z,
-                h:         vehicle.heading,
-                dimension: vehicle.dimension,
-            });
-            const metadata = JSON.stringify({
-                fuel:      vehicle.getVariable('fuel')      ?? null,
-                km:        vehicle.getVariable('km')        ?? null,
-                dirtLevel: vehicle.getVariable('dirtLevel') ?? null,
-            });
-            await query(
-                'UPDATE vehicles SET position = $1, metadata = $2 WHERE id = $3',
-                [posJson, metadata, dbId]
-            );
-        } catch (err) {
-            console.error(`[VEHICLE] Auto-save hatası (dbId: ${dbId}):`, err);
-        }
-    });
+    const CHUNK_SIZE = 20;
+    let saved = 0;
 
-    await Promise.all(saves);
-    console.log(`[VEHICLE] Auto-save: ${vehicles.length} araç kaydedildi.`);
+    for (let i = 0; i < vehicles.length; i += CHUNK_SIZE) {
+        const chunk = vehicles.slice(i, i + CHUNK_SIZE);
+        await Promise.allSettled(chunk.map(async (vehicle) => {
+            const dbId = vehicle.getVariable('dbId') as number | undefined;
+            if (!dbId) return;
+            // Native crash koruması: pointer geçersizleşmiş araçta position okuma
+            if (!mp.vehicles.exists(vehicle)) return;
+            try {
+                const pos = vehicle.position;
+                const posJson = JSON.stringify({
+                    x:         pos.x,
+                    y:         pos.y,
+                    z:         pos.z,
+                    h:         vehicle.heading,
+                    dimension: vehicle.dimension,
+                });
+                const metadata = JSON.stringify({
+                    fuel:      vehicle.getVariable('fuel')      ?? null,
+                    km:        vehicle.getVariable('km')        ?? null,
+                    dirtLevel: vehicle.getVariable('dirtLevel') ?? null,
+                });
+                await query(
+                    'UPDATE vehicles SET position = $1, metadata = $2 WHERE id = $3',
+                    [posJson, metadata, dbId]
+                );
+                saved++;
+            } catch (err) {
+                console.error(`[VEHICLE] Auto-save hatası (dbId: ${dbId}):`, err);
+            }
+        }));
+        // Event loop'a nefes ver: chunk'lar arası bekleme
+        await new Promise<void>(r => setImmediate(r));
+    }
+
+    console.log(`[VEHICLE] Auto-save: ${saved} araç kaydedildi.`);
 }
 
 // 5 dakikada bir tüm aktif araçları otomatik kaydet
@@ -234,6 +247,25 @@ export function initVehicleManager(): void {
             clearTimeout(timer);
             parkTimers.delete(dbId);
             console.log(`[VEHICLE] Araç #${dbId} için park zamanlayıcısı iptal edildi.`);
+        }
+    });
+
+    // Araç silindiğinde hayalet zamanlayıcıları temizle ────────────────────────
+    mp.events.add('entityDestroy', (entity: EntityMp) => {
+        if (entity.type !== 'vehicle') return;
+        const dbId = entity.getVariable('dbId') as number | undefined;
+        if (!dbId) return;
+
+        const parkTimer = parkTimers.get(dbId);
+        if (parkTimer !== undefined) {
+            clearTimeout(parkTimer);
+            parkTimers.delete(dbId);
+        }
+
+        const engineLoop = engineLoops.get(dbId);
+        if (engineLoop !== undefined) {
+            clearInterval(engineLoop);
+            engineLoops.delete(dbId);
         }
     });
 
