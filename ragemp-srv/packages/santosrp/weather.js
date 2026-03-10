@@ -1,10 +1,44 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.initWeatherSystem = initWeatherSystem;
 /**
  * SantosRP - Realtime Weather & Time Sync (Open-Meteo)
  * Ömür boyu ücretsiz, sınırsız ve API Key GEREKTİRMEZ!
  */
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.initWeatherSystem = initWeatherSystem;
+const https = __importStar(require("https"));
 // İstanbul Koordinatları
 const LATITUDE = "41.0151";
 const LONGITUDE = "28.9784";
@@ -32,23 +66,34 @@ function mapWMOCodeToGTA(code) {
         return "THUNDER"; // Fırtına/Gök Gürültüsü
     return "CLEAR"; // Varsayılan
 }
-async function fetchRealWeather() {
-    try {
-        // Open-Meteo API Key GEREKTİRMEZ! Direkt istek atıyoruz.
+// RAGEMP kendi Node.js sandbox'ını kullandığı için global fetch expose etmez.
+// Node.js yerleşik https modülü ile istek atıyoruz.
+function fetchRealWeather() {
+    return new Promise((resolve) => {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${LATITUDE}&longitude=${LONGITUDE}&current_weather=true`;
-        const response = await fetch(url);
-        const data = await response.json();
-        if (data && data.current_weather) {
-            const wmoCode = data.current_weather.weathercode;
-            const gtaWeather = mapWMOCodeToGTA(wmoCode);
-            // Hava durumunu RAGE:MP dünyasına uygula
-            mp.world.weather = gtaWeather;
-            console.log(`[WEATHER] İstanbul Havası Çekildi: ${data.current_weather.temperature}°C | GTA Havası: ${gtaWeather} (WMO: ${wmoCode})`);
-        }
-    }
-    catch (error) {
-        console.error("[WEATHER] Open-Meteo API'sinden veri çekilemedi:", error);
-    }
+        https.get(url, (res) => {
+            let raw = '';
+            res.on('data', (chunk) => { raw += chunk; });
+            res.on('end', () => {
+                try {
+                    const data = JSON.parse(raw);
+                    if (data?.current_weather) {
+                        const wmoCode = data.current_weather.weathercode;
+                        const gtaWeather = mapWMOCodeToGTA(wmoCode);
+                        mp.world.weather = gtaWeather;
+                        console.log(`[WEATHER] İstanbul Havası Çekildi: ${data.current_weather.temperature}°C | GTA Havası: ${gtaWeather} (WMO: ${wmoCode})`);
+                    }
+                }
+                catch (e) {
+                    console.error('[WEATHER] Open-Meteo API yanıtı parse edilemedi:', e);
+                }
+                resolve();
+            });
+        }).on('error', (error) => {
+            console.error("[WEATHER] Open-Meteo API'sinden veri çekilemedi:", error);
+            resolve();
+        });
+    });
 }
 // Gerçek dünya saatini RAGE:MP dünyasına uygular (İstanbul Saatine Kilitli)
 function syncRealTime() {

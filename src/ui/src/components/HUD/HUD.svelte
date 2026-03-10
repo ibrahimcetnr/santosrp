@@ -95,7 +95,10 @@
   
   let isChatActive = $state(false);
   let chatInput = $state('');
-  let chatContainer: HTMLElement;
+
+  // Burst mesaj kuyruğu — aynı tick'te gelen tüm mesajlar biriktirilir, bir kez flush edilir
+  let messageQueue: ChatMessage[] = [];
+  let flushScheduled = false;
 
   // --- KOMUT SİSTEMİ ---
   type CommandPermissions = { admin?: number; faction?: number; vip?: number; helper?: number };
@@ -181,20 +184,15 @@
 
   // --- FONKSİYONLAR ---
   
-  async function pushMessage(msg: ChatMessage) {
-    let wasAtBottom = true;
-    if (chatContainer) {
-      wasAtBottom = (chatContainer.scrollHeight - chatContainer.clientHeight) <= (chatContainer.scrollTop + 15);
-    }
-    // 250 mesaj limiti: en eski mesajı at
-    if (messages.length >= MAX_MESSAGES) {
-      messages = [...messages.slice(1), msg];
-    } else {
-      messages = [...messages, msg];
-    }
-    await tick();
-    if (wasAtBottom && chatContainer) {
-      chatContainer.scrollTop = chatContainer.scrollHeight;
+  /** Kuyruktaki tüm mesajları tek seferde state'e yazar — dizi asla kopyalanmaz */
+  function flushQueue() {
+    flushScheduled = false;
+    if (messageQueue.length === 0) return;
+    messages.push(...messageQueue);
+    messageQueue = [];
+    const overflow = messages.length - MAX_MESSAGES;
+    if (overflow > 0) {
+      messages.splice(0, overflow);
     }
   }
 
@@ -216,11 +214,18 @@
   let historyIndex   = $state(-1);
   let savedDraft     = $state('');
 
-  /** Ham mesajı parse edip $state dizisine ekler (window.addChatMessage + chat:push için) */
+  /** Ham mesajı kuyruğa alır; aynı tick'te gelen tüm mesajlar tek render'da işlenir */
   function addChatMessage(raw: string) {
     try {
-      if (messages.length > 50) messages.shift();
-      pushMessage({ id: Date.now(), type: detectType(raw), segments: parseColors(raw) });
+      messageQueue.push({
+        id: Date.now() + Math.random(),
+        type: detectType(raw),
+        segments: parseColors(raw)
+      });
+      if (!flushScheduled) {
+        flushScheduled = true;
+        Promise.resolve().then(flushQueue);
+      }
     } catch (e: any) {
       window.mp?.trigger('client:debug:ui', e?.message ?? String(e));
     }
@@ -422,16 +427,14 @@
 <div class="hud-wrapper">
 
   <div class="chat-container">
-    <div class="chat-messages" bind:this={chatContainer}>
-      <div class="chat-messages-inner">
-        {#each messages as msg (msg.id)}
-          <div class="chat-message {msg.type}">
-            {#each msg.segments as seg}
-              {#if seg.color}<span style="color:{seg.color}">{seg.text}</span>{:else}{seg.text}{/if}
-            {/each}
-          </div>
-        {/each}
-      </div>
+    <div class="chat-messages">
+      {#each [...messages].reverse() as msg (msg.id)}
+        <div class="chat-message {msg.type}">
+          {#each msg.segments as seg}
+            {#if seg.color}<span style="color:{seg.color}">{seg.text}</span>{:else}{seg.text}{/if}
+          {/each}
+        </div>
+      {/each}
     </div>
     
     {#if isChatActive}
@@ -572,9 +575,9 @@
   }
   
   .chat-messages {
-    max-height: 250px; overflow-y: auto; overflow-x: hidden; direction: rtl; padding-left: 6px;
+    max-height: 250px; overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column-reverse; gap: 4px; padding: 10px 0;
   }
-  .chat-messages-inner { direction: ltr; display: flex; flex-direction: column; gap: 4px; padding: 10px 0; }
   .chat-messages::-webkit-scrollbar { width: 4px; }
   .chat-messages::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.1); border-radius: 4px; }
   .chat-messages::-webkit-scrollbar-thumb { background: rgba(201, 168, 76, 0.4); border-radius: 4px; }

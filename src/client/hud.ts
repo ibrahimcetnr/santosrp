@@ -123,31 +123,61 @@ export function initHUD(): void {
     } catch {}
   });
 
-  // ── Araç HUD Poller (100ms) ───────────────────────────────────────────────
-  // Render event yerine interval kullanıyoruz — araç verisi saniyede 10x yeterli,
-  // render'da her frame hesaplama yapmak gereksiz yük oluşturur.
+ // ── Araç HUD Poller (100ms) ───────────────────────────────────────────────
+  
+  // Önceki araç verilerini hafızada tutmak için bir obje oluşturuyoruz
+  let lastVehicleData = {
+    inVehicle: false,
+    speed: -1,
+    fuel: -1,
+    engineOn: false,
+    isLocked: false,
+    seatbelt: false
+  };
+
   setInterval(() => {
     if (!hudActive) return;
     try {
       const player  = mp.players.local;
       const vehicle = player.vehicle;
 
+      // Araçta değilse ve zaten daha önce de değilsek boşuna gönderme
       if (!vehicle) {
-        sendToHUD('hudVehicle', { inVehicle: false });
+        if (lastVehicleData.inVehicle) {
+          sendToHUD('hudVehicle', { inVehicle: false });
+          lastVehicleData.inVehicle = false;
+        }
         return;
       }
 
-      // Hız: m/s → km/h (getSpeed daha doğru)
+      // Güncel verileri çek
       const speed = Math.round(vehicle.getSpeed() * 3.6);
+      const fuel = (vehicle.getVariable('fuel') as number | undefined) ?? 100;
+      const engineOn = !!vehicle.getVariable('engineStatus');
+      const isLocked = !!vehicle.getVariable('lockedStatus');
+      const seatbelt = !!player.getVariable('seatbelt');
 
-      sendToHUD('hudVehicle', {
-        inVehicle:   true,
-        speed,
-        fuel:        (vehicle.getVariable('fuel') as number | undefined) ?? 100,
-        engineOn:    !!vehicle.getVariable('engineStatus'),
-        isLocked:    !!vehicle.getVariable('lockedStatus'),
-        seatbelt:    !!player.getVariable('seatbelt'),
-      });
+      // Sadece verilerden HERHANGİ BİRİ değiştiyse CEF'e veri gönder
+      if (
+        !lastVehicleData.inVehicle ||
+        lastVehicleData.speed !== speed ||
+        lastVehicleData.fuel !== fuel ||
+        lastVehicleData.engineOn !== engineOn ||
+        lastVehicleData.isLocked !== isLocked ||
+        lastVehicleData.seatbelt !== seatbelt
+      ) {
+        sendToHUD('hudVehicle', {
+          inVehicle: true,
+          speed,
+          fuel,
+          engineOn,
+          isLocked,
+          seatbelt,
+        });
+
+        // Yeni verileri hafızaya yaz
+        lastVehicleData = { inVehicle: true, speed, fuel, engineOn, isLocked, seatbelt };
+      }
     } catch {}
   }, 100);
 }

@@ -38,7 +38,12 @@ exports.disconnectDB = disconnectDB;
 exports.query = query;
 const pg_1 = require("pg");
 const dotenv = __importStar(require("dotenv"));
-dotenv.config();
+const path = __importStar(require("path"));
+// Systemd EnvironmentFile ile çalışınca DATABASE_URL zaten env'de olur.
+// Doğrudan terminal başlatmada ise __dirname'den üç seviye yukarıdaki .env'yi yükle.
+if (!process.env.DATABASE_URL) {
+    dotenv.config({ path: path.join(__dirname, '../../../.env') });
+}
 const connectionString = process.env.DATABASE_URL;
 exports.pool = new pg_1.Pool({
     connectionString,

@@ -2,6 +2,7 @@
  * SantosRP - Realtime Weather & Time Sync (Open-Meteo)
  * Ömür boyu ücretsiz, sınırsız ve API Key GEREKTİRMEZ!
  */
+import * as https from 'https';
 
 // İstanbul Koordinatları
 const LATITUDE  = "41.0151";
@@ -22,24 +23,33 @@ function mapWMOCodeToGTA(code: number): string {
   return "CLEAR"; // Varsayılan
 }
 
-async function fetchRealWeather() {
-  try {
-    // Open-Meteo API Key GEREKTİRMEZ! Direkt istek atıyoruz.
+// RAGEMP kendi Node.js sandbox'ını kullandığı için global fetch expose etmez.
+// Node.js yerleşik https modülü ile istek atıyoruz.
+function fetchRealWeather(): Promise<void> {
+  return new Promise((resolve) => {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${LATITUDE}&longitude=${LONGITUDE}&current_weather=true`;
-    const response = await fetch(url);
-    const data = await response.json() as { current_weather?: { weathercode: number; temperature: number } };
-
-    if (data && data.current_weather) {
-      const wmoCode    = data.current_weather.weathercode;
-      const gtaWeather = mapWMOCodeToGTA(wmoCode);
-
-      // Hava durumunu RAGE:MP dünyasına uygula
-      mp.world.weather = gtaWeather;
-      console.log(`[WEATHER] İstanbul Havası Çekildi: ${data.current_weather.temperature}°C | GTA Havası: ${gtaWeather} (WMO: ${wmoCode})`);
-    }
-  } catch (error) {
-    console.error("[WEATHER] Open-Meteo API'sinden veri çekilemedi:", error);
-  }
+    https.get(url, (res) => {
+      let raw = '';
+      res.on('data', (chunk: string) => { raw += chunk; });
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(raw) as { current_weather?: { weathercode: number; temperature: number } };
+          if (data?.current_weather) {
+            const wmoCode    = data.current_weather.weathercode;
+            const gtaWeather = mapWMOCodeToGTA(wmoCode);
+            mp.world.weather = gtaWeather;
+            console.log(`[WEATHER] İstanbul Havası Çekildi: ${data.current_weather.temperature}°C | GTA Havası: ${gtaWeather} (WMO: ${wmoCode})`);
+          }
+        } catch (e) {
+          console.error('[WEATHER] Open-Meteo API yanıtı parse edilemedi:', e);
+        }
+        resolve();
+      });
+    }).on('error', (error: Error) => {
+      console.error("[WEATHER] Open-Meteo API'sinden veri çekilemedi:", error);
+      resolve();
+    });
+  });
 }
 
 // Gerçek dünya saatini RAGE:MP dünyasına uygular (İstanbul Saatine Kilitli)

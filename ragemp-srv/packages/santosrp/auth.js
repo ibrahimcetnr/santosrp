@@ -125,6 +125,9 @@ function validateInput(player, username, password) {
 const loginLocks = new Set();
 const accountLocks = new Set(); // Aynı hesaba farklı IP'lerden eşzamanlı girişi engeller
 const activeAccounts = new Map(); // O(1) duplicate session kontrolü
+// RAGEMP disconnect sırasında player wrapper yeniden oluşturulduğundan
+// player.accountId kaybolur. player.id → accountId ters haritası güvenilir kaynaktır.
+const playerIdToAccountId = new Map(); // player.id → account.id
 // ─── Event Handler'ları ───────────────────────────────────────────────────────
 function registerAuthEvents() {
     // Oyuncu bağlandığında login ekranını göster
@@ -218,14 +221,25 @@ function registerAuthEvents() {
                 return;
             }
             // 5. Duplicate session kontrolü — O(1) Map sorgusu ile
+            // Aynı hesaba ait eski oturum varsa (F1 relog, crash, vb.) eski oyuncuyu kick'le;
+            // bloklama değil — yeni oturuma izin ver, eskiyi temizle.
             if (activeAccounts.has(account.id)) {
-                if ((0, safeEvent_1.isPlayerValid)(player)) {
-                    player.call('client:loginError', [
-                        'Bu hesap zaten başka bir oturumda açık. Lütfen daha sonra tekrar deneyin.'
-                    ]);
+                const oldPlayer = activeAccounts.get(account.id);
+                if ((0, safeEvent_1.isPlayerValid)(oldPlayer) && oldPlayer !== player) {
+                    try {
+                        oldPlayer.kick('Hesabınıza başka bir yerden giriş yapıldı.');
+                    }
+                    catch { /* Pointer geçersiz, zaten kopmuş */ }
                 }
-                console.warn(`[AUTH] Duplicate session engellendi: ${cleanUsername} (accountId: ${account.id})`);
-                return;
+                activeAccounts.delete(account.id);
+                // playerIdToAccountId'den de eski kaydı sil
+                for (const [pid, aid] of playerIdToAccountId) {
+                    if (aid === account.id) {
+                        playerIdToAccountId.delete(pid);
+                        break;
+                    }
+                }
+                console.warn(`[AUTH] Eski oturum temizlendi ve yeni girişe izin verildi: ${cleanUsername} (accountId: ${account.id})`);
             }
             // 6. Başarılı giriş: DB güncelle ve cache geçersiz kıl
             const socialId = player.socialClub || player.name;
@@ -238,6 +252,7 @@ function registerAuthEvents() {
             player.accountUsername = account.username;
             // O(1) session tracking: başarılı giriş sonrası Map'e kaydet
             activeAccounts.set(account.id, player);
+            playerIdToAccountId.set(player.id, account.id);
             clearAttempts(rateLimitKey);
             console.log(`[AUTH] Başarılı giriş: ${cleanUsername} (accountId: ${account.id})`);
             // Oyuncuyu karakter seçim ekranı için izole bir boyuta al (diğer oyuncuları görmemesi için)
@@ -287,7 +302,10 @@ function registerAuthEvents() {
         }
     });
     // Disconnect'te login lock'u temizle (oyuncu login ekranındayken kopabilir)
-    (0, safeEvent_1.safeEvent)('playerDisconnect', (player) => {
+    // NOT: safeEvent kullanılmıyor — disconnect anında mp.players.exists(player)
+    // false döner ve safeEvent handler'ı çalıştırmadan sessizce çıkar,
+    // bu da activeAccounts'un asla temizlenmemesine (relog hatası) yol açar.
+    mp.events.add('playerDisconnect', (player) => {
         try {
             const key = getRateLimitKey(player);
             loginLocks.delete(key);
@@ -296,10 +314,16 @@ function registerAuthEvents() {
             // Pointer geçersiz — önemli değil
         }
         // activeAccounts temizliği
+        // player.accountId disconnect anında undefined olabilir (RAGEMP wrapper yenilenir);
+        // bu nedenle playerIdToAccountId ters haritasından güvenilir şekilde çekiyoruz.
         try {
-            const accId = player.accountId;
-            if (accId != null)
+            const pid = player.id;
+            const accId = playerIdToAccountId.get(pid);
+            if (accId != null) {
                 activeAccounts.delete(accId);
+                playerIdToAccountId.delete(pid);
+                console.log(`[AUTH] activeAccounts temizlendi: accountId=${accId}, playerId=${pid} (disconnect)`);
+            }
         }
         catch { /* Pointer geçersiz */ }
     });

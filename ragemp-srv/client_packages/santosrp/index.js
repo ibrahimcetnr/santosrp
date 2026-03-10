@@ -324,24 +324,42 @@ function initHUD() {
     } catch {
     }
   });
+  let lastVehicleData = {
+    inVehicle: false,
+    speed: -1,
+    fuel: -1,
+    engineOn: false,
+    isLocked: false,
+    seatbelt: false
+  };
   setInterval(() => {
     if (!hudActive) return;
     try {
       const player = mp.players.local;
       const vehicle = player.vehicle;
       if (!vehicle) {
-        sendToHUD("hudVehicle", { inVehicle: false });
+        if (lastVehicleData.inVehicle) {
+          sendToHUD("hudVehicle", { inVehicle: false });
+          lastVehicleData.inVehicle = false;
+        }
         return;
       }
       const speed = Math.round(vehicle.getSpeed() * 3.6);
-      sendToHUD("hudVehicle", {
-        inVehicle: true,
-        speed,
-        fuel: vehicle.getVariable("fuel") ?? 100,
-        engineOn: !!vehicle.getVariable("engineStatus"),
-        isLocked: !!vehicle.getVariable("lockedStatus"),
-        seatbelt: !!player.getVariable("seatbelt")
-      });
+      const fuel = vehicle.getVariable("fuel") ?? 100;
+      const engineOn = !!vehicle.getVariable("engineStatus");
+      const isLocked = !!vehicle.getVariable("lockedStatus");
+      const seatbelt = !!player.getVariable("seatbelt");
+      if (!lastVehicleData.inVehicle || lastVehicleData.speed !== speed || lastVehicleData.fuel !== fuel || lastVehicleData.engineOn !== engineOn || lastVehicleData.isLocked !== isLocked || lastVehicleData.seatbelt !== seatbelt) {
+        sendToHUD("hudVehicle", {
+          inVehicle: true,
+          speed,
+          fuel,
+          engineOn,
+          isLocked,
+          seatbelt
+        });
+        lastVehicleData = { inVehicle: true, speed, fuel, engineOn, isLocked, seatbelt };
+      }
     } catch {
     }
   }, 100);

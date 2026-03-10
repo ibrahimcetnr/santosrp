@@ -1,7 +1,12 @@
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 
-dotenv.config();
+// Systemd EnvironmentFile ile çalışınca DATABASE_URL zaten env'de olur.
+// Doğrudan terminal başlatmada ise __dirname'den üç seviye yukarıdaki .env'yi yükle.
+if (!process.env.DATABASE_URL) {
+  dotenv.config({ path: path.join(__dirname, '../../../.env') });
+}
 
 const connectionString = process.env.DATABASE_URL;
 
