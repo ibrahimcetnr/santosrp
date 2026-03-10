@@ -30,6 +30,8 @@
   let isLocked = $state(false);
   let hasSeatbelt = $state(true);
   let fuelLevel = $state(65);
+  let isLightsOn = $state(false);
+  let isParkingBrakeOn = $state(false);
 
   // --- STATE: Chatbox Verileri ---
   type ChatSegment = { text: string; color: string | null };
@@ -275,6 +277,11 @@
       historyIndex = -1;
       isChatActive = false;
       window.mp?.invoke('focus', false);
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      if (firstSuggestion) {
+        chatInput = firstSuggestion.name + ' ';
+      }
     }
   }
 
@@ -360,6 +367,8 @@
       engineOn?: boolean;
       isLocked?: boolean;
       seatbelt?: boolean;
+      lightsOn?: boolean;
+      parkingBrakeOn?: boolean;
     }) => {
       inVehicle    = data.inVehicle;
       if (!data.inVehicle) return;
@@ -368,6 +377,8 @@
       isEngineOn   = data.engineOn ?? isEngineOn;
       isLocked     = data.isLocked ?? isLocked;
       hasSeatbelt  = data.seatbelt ?? hasSeatbelt;
+      isLightsOn   = data.lightsOn ?? isLightsOn;
+      isParkingBrakeOn = data.parkingBrakeOn ?? isParkingBrakeOn;
     };
 
     // Komut listesi güncelleme
@@ -499,14 +510,28 @@
 
   {#if inVehicle}
     <div class="vehicle-container">
-      <div class="stat-box speed-box">
-        <span class="speed-val">{vehicleSpeed.toString().padStart(3, '0')}</span>
-        <span class="speed-unit">KM/H</span>
-      </div>
+      {#if isEngineOn}
+        <div class="stat-box speed-box">
+          <span class="speed-val">{vehicleSpeed.toString().padStart(3, '0')}</span>
+          <span class="speed-unit">KM/H</span>
+        </div>
+      {/if}
 
       <div class="vehicle-icon-bar">
-        <div class="icon-btn {isEngineOn ? 'active' : 'inactive'}">
-          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path></svg>
+        <div class="icon-btn {isLightsOn ? 'active' : 'inactive'}">
+          <!-- Lightbulb (far) ikonu -->
+          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18h6" />
+            <path d="M10 22h4" />
+            <path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.9 2.5 5.1C8.2 15 9 16.5 9 18h6c0-1.5.8-3 1.5-3.9C18 12.9 19 11 19 9a7 7 0 0 0-7-7z" />
+          </svg>
+        </div>
+        <div class="icon-btn {isParkingBrakeOn ? 'danger' : 'inactive'}">
+          <!-- El freni (P) ikonu -->
+          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M10 15V9h2.5A1.5 1.5 0 0 1 14 10.5v0A1.5 1.5 0 0 1 12.5 12H10" />
+          </svg>
         </div>
         <div class="icon-btn {isLocked ? 'danger' : 'active'}">
           <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>

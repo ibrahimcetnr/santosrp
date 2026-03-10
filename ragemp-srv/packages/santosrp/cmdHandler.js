@@ -194,7 +194,7 @@ function initCommandSystem() {
         else {
             // Normal konuşma (15 metre). Yakında Bembeyaz, uzakta Koyu Gri
             broadcastFadingMessage(player, 15.0, '#ffffff', '#555555', (color) => {
-                return `${color}${charName} diyor ki: ${clean}`;
+                return `${color}${charName}: ${clean}`;
             });
         }
         console.log(`[CHAT] ${charName}: ${clean}`);

@@ -61,6 +61,12 @@ function registerClientAuthEvents() {
   });
   mp.events.add("client:loginSuccess", (username, adminLevel, charsJson) => {
     if (loginBrowser) {
+      if (lastLoginVars.rememberMe) {
+        mp.storage.data.savedAuth = { username: lastLoginVars.username, password: lastLoginVars.password };
+      } else {
+        delete mp.storage.data.savedAuth;
+      }
+      mp.storage.flush();
       loginBrowser.execute(
         `window.onLoginSuccess && window.onLoginSuccess(${JSON.stringify(username)}, ${adminLevel}, ${charsJson})`
       );
@@ -85,11 +91,16 @@ function registerClientAuthEvents() {
       setTimeout(() => {
         mp.gui.cursor.show(true, true);
         mp.gui.cursor.visible = true;
+        if (mp.storage.data.savedAuth && mp.storage.data.savedAuth.username && mp.storage.data.savedAuth.password) {
+          loginBrowser?.execute(`window.setSavedCredentials && window.setSavedCredentials('${mp.storage.data.savedAuth.username}', '${mp.storage.data.savedAuth.password}')`);
+        }
       }, 200);
     }
   });
 }
-mp.events.add("server:tryLogin", (username, pass) => {
+var lastLoginVars = { username: "", password: "", rememberMe: false };
+mp.events.add("server:tryLogin", (username, pass, rememberMe) => {
+  lastLoginVars = { username, password: pass, rememberMe: rememberMe ?? false };
   mp.events.callRemote("server:tryLogin", username, pass);
 });
 mp.events.add("client:previewCharacter", (modelName, charDataJson) => {
@@ -793,22 +804,18 @@ mp.keys.bind(75, true, () => {
   mp.events.callRemote("runCommand", "/kemer");
 });
 mp.events.add("entityStreamIn", (entity) => {
-  if (entity.type !== "vehicle") return;
-  const vehicle = entity;
-  try {
-    mp.game.vehicle.setVehicleEngineOn(vehicle.handle, false, true, true);
-    mp.game.vehicle.setVehicleUndriveable(vehicle.handle, true);
-  } catch {
+  if (entity.type == "vehicle") {
+    let eStatus = entity.getVariable("engine");
+    if (eStatus === void 0) eStatus = false;
+    setTimeout((_) => {
+      entity.setEngineOn(eStatus, true, true);
+    }, 100);
   }
 });
-mp.events.add("playerEnterVehicle", (vehicle, _seat) => {
-  if (!vehicle) return;
-  try {
-    const engineOn = !!vehicle.getVariable("engineStatus");
-    mp.game.vehicle.setVehicleEngineOn(vehicle.handle, engineOn, true, true);
-    mp.game.vehicle.setVehicleUndriveable(vehicle.handle, !engineOn);
-  } catch {
-  }
+mp.events.addDataHandler("engine", (entity, eStatus) => {
+  setTimeout((_) => {
+    entity.setEngineOn(eStatus, true, true);
+  }, 100);
 });
 mp.events.add("render", () => {
   const player = mp.players.local;
@@ -857,41 +864,96 @@ mp.events.add("render", () => {
         }
       }
     }
-    try {
-      const indLeft = !!player.vehicle.getVariable("indLeft");
-      const indRight = !!player.vehicle.getVariable("indRight");
-      mp.game.vehicle.setVehicleIndicatorLights(player.vehicle.handle, 0, indLeft);
-      mp.game.vehicle.setVehicleIndicatorLights(player.vehicle.handle, 1, indRight);
-    } catch {
-    }
   }
 });
 mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
   const player = mp.players.local;
   player.setConfigFlag(429, true);
+  player.setConfigFlag(241, true);
 });
-mp.events.add("client:vehicle:door", (vehicleId, doorId, open) => {
-  const vehicle = mp.vehicles.at(vehicleId);
-  if (!vehicle) return;
-  try {
-    if (open) {
-      mp.game.vehicle.setVehicleDoorOpen(vehicle.handle, doorId, false, false);
-    } else {
-      mp.game.vehicle.setVehicleDoorShut(vehicle.handle, doorId, false);
-    }
-  } catch {
+mp.events.add("playerExitVehicle", (vehicle, _seat) => {
+  parkingBrakeOn = false;
+  if (cruiseActive) {
+    cruiseActive = false;
+    mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Ara\xE7tan \xE7\u0131k\u0131ld\u0131 \u2014 devre d\u0131\u015F\u0131.");
   }
 });
-mp.events.add("client:vehicle:window", (vehicleId, winId, down) => {
-  const vehicle = mp.vehicles.at(vehicleId);
-  if (!vehicle) return;
-  try {
-    if (down) {
-      mp.game.vehicle.rollDownWindow(vehicle.handle, winId);
-    } else {
-      mp.game.vehicle.rollUpWindow(vehicle.handle, winId);
+function updateIndicators(entity) {
+  if (entity.type !== "vehicle") return;
+  const indLeft = !!entity.getVariable("indLeft");
+  const indRight = !!entity.getVariable("indRight");
+  const indHazard = !!entity.getVariable("indHazard");
+  if (indHazard) {
+    entity.setIndicatorLights(1, true);
+    entity.setIndicatorLights(0, true);
+  } else {
+    entity.setIndicatorLights(1, indLeft);
+    entity.setIndicatorLights(0, indRight);
+  }
+}
+mp.events.addDataHandler("indLeft", updateIndicators);
+mp.events.addDataHandler("indRight", updateIndicators);
+mp.events.addDataHandler("indHazard", updateIndicators);
+for (let i = 0; i <= 5; i++) {
+  mp.events.addDataHandler(`door_${i}`, (entity, value) => {
+    if (entity.type === "vehicle") {
+      try {
+        if (value) {
+          entity.setDoorOpen(i, false, false);
+        } else {
+          entity.setDoorShut(i, false);
+        }
+      } catch (err) {
+      }
     }
-  } catch {
+  });
+}
+for (let i = 0; i <= 3; i++) {
+  mp.events.addDataHandler(`window_${i}`, (entity, value) => {
+    if (entity.type === "vehicle") {
+      try {
+        if (value) {
+          entity.rollDownWindow(i);
+        } else {
+          entity.rollUpWindow(i);
+        }
+      } catch (err) {
+      }
+    }
+  });
+}
+mp.events.add("entityStreamIn", (entity) => {
+  if (entity.type === "vehicle") {
+    const indLeft = !!entity.getVariable("indLeft");
+    const indRight = !!entity.getVariable("indRight");
+    const indHazard = !!entity.getVariable("indHazard");
+    if (indHazard) {
+      entity.setIndicatorLights(1, true);
+      entity.setIndicatorLights(0, true);
+    } else {
+      entity.setIndicatorLights(1, indLeft);
+      entity.setIndicatorLights(0, indRight);
+    }
+    for (let i = 0; i <= 5; i++) {
+      try {
+        if (entity.getVariable(`door_${i}`)) {
+          entity.setDoorOpen(i, false, true);
+        } else {
+          entity.setDoorShut(i, true);
+        }
+      } catch (err) {
+      }
+    }
+    for (let i = 0; i <= 3; i++) {
+      try {
+        if (entity.getVariable(`window_${i}`)) {
+          entity.rollDownWindow(i);
+        } else {
+          entity.rollUpWindow(i);
+        }
+      } catch (err) {
+      }
+    }
   }
 });
 mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
@@ -977,48 +1039,36 @@ mp.keys.bind(80, true, () => {
   if (isUIOpen() || !mp.players.local.vehicle) return;
   mp.events.callRemote("vehicle:indicator", "hazard");
 });
-mp.keys.bind(81, true, () => {
+var vehicleLightStates = /* @__PURE__ */ new Map();
+mp.keys.bind(72, true, () => {
   if (isUIOpen() || !mp.players.local.vehicle) return;
   const veh = mp.players.local.vehicle;
-  try {
-    mp.game.invoke("0x1FD09E7390A74D54", veh.handle, true);
+  let state = vehicleLightStates.get(veh.handle) || 0;
+  state = (state + 1) % 3;
+  vehicleLightStates.set(veh.handle, state);
+  mp.game.invoke("0x1FD09E7390A74D54", veh.handle, state);
+  const labels = ["KAPALI", "PARK (GER\xC7EK)", "KISA"];
+  mp.events.call("chat:push", `!{#94a3b8}[FAR] ${labels[state]}`);
+});
+mp.events.add("playerLeaveVehicle", (vehicle) => {
+  if (vehicle && vehicle.handle !== 0) {
+    const lastState = vehicleLightStates.get(vehicle.handle) || 0;
     setTimeout(() => {
-      try {
-        mp.game.invoke("0x1FD09E7390A74D54", veh.handle, false);
-      } catch {
+      if (vehicle && vehicle.handle !== 0) {
+        mp.game.invoke("0x1FD09E7390A74D54", vehicle.handle, lastState);
       }
-    }, 400);
-  } catch {
+    }, 500);
   }
 });
-var indicatorTimers = /* @__PURE__ */ new Map();
-mp.events.add("entityStreamIn", (entity) => {
-  if (entity.type !== "vehicle") return;
-  const veh = entity;
-  const key = veh.id;
-  if (indicatorTimers.has(key)) return;
-  const timer = setInterval(() => {
-    if (!mp.vehicles.exists(veh)) {
-      clearInterval(timer);
-      indicatorTimers.delete(key);
-      return;
-    }
-    try {
-      const left = !!veh.getVariable("indLeft");
-      const right = !!veh.getVariable("indRight");
-      mp.game.vehicle.setVehicleIndicatorLights(veh.handle, 0, left);
-      mp.game.vehicle.setVehicleIndicatorLights(veh.handle, 1, right);
-    } catch {
-    }
-  }, 150);
-  indicatorTimers.set(key, timer);
+mp.keys.bind(81, true, () => {
+  const veh = mp.players.local.vehicle;
+  if (!isUIOpen() && veh) {
+    mp.game.invoke("0x8B7FD87F0DDB421E", veh.handle, true);
+  }
 });
-mp.events.add("entityStreamOut", (entity) => {
-  if (entity.type !== "vehicle") return;
-  const key = entity.id;
-  const timer = indicatorTimers.get(key);
-  if (timer) {
-    clearInterval(timer);
-    indicatorTimers.delete(key);
+mp.keys.bind(81, false, () => {
+  const veh = mp.players.local.vehicle;
+  if (veh) {
+    mp.game.invoke("0x8B7FD87F0DDB421E", veh.handle, false);
   }
 });

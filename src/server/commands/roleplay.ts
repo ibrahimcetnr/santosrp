@@ -71,38 +71,88 @@ registerCommand(
   }
 );
 
-function sendPrivateMessage(player: PlayerMp, args: string[]): void {
-  if (args.length < 2) {
-    player.outputChatBox('!{#fbbf24}[KULLANIM] /pm [ID] [Mesaj]');
-    return;
-  }
-
-  const targetId = parseInt(args[0], 10);
-  if (isNaN(targetId)) {
-    player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
-    return;
-  }
-
-  const target = mp.players.at(targetId);
-  if (!target || !isPlayerValid(target)) {
-    player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı.');
-    return;
-  }
-
-  const charName = player.characterName || player.accountUsername || player.name;
-  const targetName = target.characterName || target.accountUsername || target.name;
-  const mesaj = args.slice(1).join(' ');
-
-  player.outputChatBox(`!{#facc15}[PM] ${targetName} (${target.id}) kişisine: ${mesaj}`);
-  target.outputChatBox(`!{#facc15}[PM] ${charName} (${player.id}) kişisinden: ${mesaj}`);
-}
-
 registerCommand(
   { name: '/pm', syntax: '[ID] [Mesaj]', description: 'Belirtilen ID\'ye özel mesaj gönderir', permissions: {} },
-  sendPrivateMessage
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 2) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /pm [ID] [Mesaj]');
+      return;
+    }
+
+    const targetId = parseInt(args[0], 10);
+    if (isNaN(targetId)) {
+      player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+      return;
+    }
+
+    const target = mp.players.at(targetId);
+    if (!target || !isPlayerValid(target)) {
+      player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı veya oyunda değil.');
+      return;
+    }
+
+    // Ekstra Güvenlik: Oyuncunun kendisine PM atmasını engelle
+    if (player.id === target.id) {
+      player.outputChatBox('!{#ef4444}[HATA] Kendinize özel mesaj gönderemezsiniz.');
+      return;
+    }
+
+    const charName = player.characterName || player.accountUsername || player.name;
+    const targetName = target.characterName || target.accountUsername || target.name;
+    const mesaj = args.slice(1).join(' ');
+
+    player.outputChatBox(`!{#facc15}[PM] ${targetName} (${target.id}) kişisine: ${mesaj}`);
+    target.outputChatBox(`!{#facc15}[PM] ${charName} (${player.id}) kişisinden: ${mesaj}`);
+  }
 );
 
 registerCommand(
-  { name: '/w', syntax: '[ID] [Mesaj]', description: 'Fısıldama (/pm takı adı)', permissions: {} },
-  sendPrivateMessage
+  { name: '/w', syntax: '[ID] [Mesaj]', description: 'Belirli birine fısıldar (2.5m)', permissions: {} },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length < 2) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /w [ID] [Mesaj]');
+      return;
+    }
+
+    const targetId = parseInt(args[0], 10);
+    if (isNaN(targetId)) {
+      player.outputChatBox('!{#ef4444}[HATA] Geçersiz ID.');
+      return;
+    }
+
+    const target = mp.players.at(targetId);
+    if (!target || !isPlayerValid(target)) {
+      player.outputChatBox('!{#ef4444}[HATA] Oyuncu bulunamadı veya oyunda değil.');
+      return;
+    }
+
+    if (player.id === target.id) {
+      player.outputChatBox('!{#ef4444}[HATA] Kendinize fısıldayamazsınız.');
+      return;
+    }
+
+    // ─── MESAFE VE BOYUT KONTROLÜ (En fazla 2.5 metre) ───
+    if (player.dimension !== target.dimension || player.dist(target.position) > 2.5) {
+      player.outputChatBox('!{#ef4444}[HATA] Bu oyuncu fısıldayabileceğiniz kadar yakınınızda değil.');
+      return;
+    }
+
+    const charName = player.characterName || player.accountUsername || player.name;
+    const targetName = target.characterName || target.accountUsername || target.name;
+    const mesaj = args.slice(1).join(' ');
+
+    const whisperColor = '!{#d1d5db}'; // Soluk gri (fısıltı hissi için)
+
+    // Fısıldaşan iki kişiye mesajı göster
+    player.outputChatBox(`${whisperColor}* (Fısıltı) ${targetName} kişisine: ${mesaj}`);
+    target.outputChatBox(`${whisperColor}* (Fısıltı) ${charName}: ${mesaj}`);
+
+    // (OPSİYONEL RP DETAYI): Yanlarındaki diğer kişilere duyur
+    // Sadece dibinde duranlar (3.0 metre çapındakiler) ne dediklerini duymaz ama fısıldaştıklarını görür.
+    mp.players.forEachInRange(player.position, 3.0, (nearby) => {
+      if (nearby.id !== player.id && nearby.id !== target.id && nearby.dimension === player.dimension) {
+        nearby.outputChatBox(`!{#9ca3af}* ${charName}, ${targetName} kişisine bir şeyler fısıldar.`);
+      }
+    });
+  }
 );

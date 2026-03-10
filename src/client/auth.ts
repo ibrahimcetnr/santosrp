@@ -85,6 +85,13 @@ export function registerClientAuthEvents(): void {
 
   mp.events.add('client:loginSuccess', (username: string, adminLevel: number, charsJson: string) => {
     if (loginBrowser) {
+      if (lastLoginVars.rememberMe) {
+        mp.storage.data.savedAuth = { username: lastLoginVars.username, password: lastLoginVars.password };
+      } else {
+        delete mp.storage.data.savedAuth;
+      }
+      mp.storage.flush();
+      
       loginBrowser.execute(
         `window.onLoginSuccess && window.onLoginSuccess(${JSON.stringify(username)}, ${adminLevel}, ${charsJson})`
       );
@@ -112,6 +119,10 @@ export function registerClientAuthEvents(): void {
       setTimeout(() => {
          mp.gui.cursor.show(true, true);
          mp.gui.cursor.visible = true;
+
+         if (mp.storage.data.savedAuth && mp.storage.data.savedAuth.username && mp.storage.data.savedAuth.password) {
+           loginBrowser?.execute(`window.setSavedCredentials && window.setSavedCredentials('${mp.storage.data.savedAuth.username}', '${mp.storage.data.savedAuth.password}')`);
+         }
       }, 200);
     }
   });
@@ -119,7 +130,10 @@ export function registerClientAuthEvents(): void {
 
 // --- CEF to Client to Server Event Proxies ---
 
-mp.events.add('server:tryLogin', (username: string, pass: string) => {
+let lastLoginVars = { username: '', password: '', rememberMe: false };
+
+mp.events.add('server:tryLogin', (username: string, pass: string, rememberMe?: boolean) => {
+  lastLoginVars = { username, password: pass, rememberMe: rememberMe ?? false };
   mp.events.callRemote('server:tryLogin', username, pass);
 });
 

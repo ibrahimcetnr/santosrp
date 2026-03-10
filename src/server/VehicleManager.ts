@@ -237,5 +237,21 @@ export function initVehicleManager(): void {
         }
     });
 
+    // Araca binmeye başlandığında (kapı koluna uzandığında) ───────────────────
+    safeEvent('playerStartEnterVehicle', (player: PlayerMp, vehicle: VehicleMp, seat: number) => {
+        if (!vehicle) return;
+
+        const dbId = vehicle.getVariable('dbId') ?? 'Bilinmiyor';
+        const fuel = vehicle.getVariable('fuel') ?? 0;
+        const tax = vehicle.getVariable('tax') ?? 0; // Veritabanında tax (vergi) sistemi ekliyse buradan çeker, yoksa 0 döner.
+        const engineStatus = vehicle.getVariable('engineStatus') ?? false;
+
+        // Chat mesajını mevcut değişkenlerle formatla
+        player.outputChatBox(`!{#ffa500}ID: !{#FFF}${dbId} !{#ffa500}| Benzin: !{#FFF}${Math.floor(fuel as number)} !{#ffa500}| Plaka: !{#FFF}${vehicle.numberPlate} !{#ffa500}| Vergi: !{#FFF}$${tax}`);
+        
+        // Geçerli motor durumunu sunucu nesnesine aktar
+        vehicle.engine = !!engineStatus;
+    });
+
     console.log('[VEHICLE] Araç Yöneticisi aktif.');
 }

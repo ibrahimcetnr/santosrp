@@ -271,8 +271,6 @@ for (const name of ['/kemer', '/k']) {
     const vehicle = player.vehicle;
     const isOpen = !!vehicle.getVariable(key);
     vehicle.setVariable(key, !isOpen);
-    // Client'a bildir
-    player.call('client:vehicle:door', [vehicle.id, doorId, !isOpen]);
     const doorNames = ['Sürücü kapısı', 'Yolcu kapısı', 'Arka sol kapı', 'Arka sağ kapı', 'Kaput', 'Bagaj'];
     player.outputChatBox(`!{#22c55e}[ARAÇ] ${doorNames[doorId]} ${!isOpen ? 'açıldı' : 'kapatıldı'}.`);
 });
@@ -300,8 +298,6 @@ for (const name of ['/kemer', '/k']) {
     const vehicle = player.vehicle;
     const isDown = !!vehicle.getVariable(key);
     vehicle.setVariable(key, !isDown);
-    // Client'a bildir
-    player.call('client:vehicle:window', [vehicle.id, winId, !isDown]);
     const winNames = ['Sürücü camı', 'Yolcu camı', 'Arka sol cam', 'Arka sağ cam'];
     player.outputChatBox(`!{#22c55e}[ARAÇ] ${winNames[winId]} ${!isDown ? 'indirildi' : 'kaldırıldı'}.`);
 });

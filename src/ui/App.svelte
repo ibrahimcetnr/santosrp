@@ -15,6 +15,8 @@
   let pendingCharData = $state<string | null>(null);
   let myAdminLevel = $state(0);
   let commandList = $state<any[]>([]);
+  let passwordInput: HTMLInputElement;
+  let rememberMe = $state(false);
 
   function triggerLogin() {
     if (!username.trim() || !password.trim()) {
@@ -26,7 +28,7 @@
     isLoading = true;
 
     if (typeof (window as any).mp !== 'undefined') {
-      (window as any).mp.trigger('server:tryLogin', username.trim().toLowerCase(), password);
+      (window as any).mp.trigger('server:tryLogin', username.trim().toLowerCase(), password, rememberMe);
     } else {
       // Dev mode - simulate login with adminLevel 10
       setTimeout(() => {
@@ -39,9 +41,19 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') triggerLogin();
+    if (e.key === 'Tab' && (e.target as HTMLElement).id === 'username') {
+      e.preventDefault();
+      passwordInput.focus();
+    }
   }
 
   onMount(() => {
+    window.setSavedCredentials = (user: string, pass: string) => {
+      username = user;
+      password = pass;
+      rememberMe = true;
+    };
+
     window.onLoginError = (msg: string) => {
       isLoading = false;
       errorMessage = msg;
@@ -125,12 +137,20 @@
         <input
           id="password"
           type="password"
+          bind:this={passwordInput}
           bind:value={password}
           onkeydown={handleKeydown}
           placeholder="Şifrenizi girin"
           autocomplete="off"
           disabled={isLoading}
         />
+      </div>
+
+      <div class="form-group remember-me-group">
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={rememberMe} disabled={isLoading} />
+          Beni Hatırla
+        </label>
       </div>
 
       <!-- Hata mesajı -->
@@ -308,6 +328,64 @@
   .form-group input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Remember Me */
+  .remember-me-group {
+    flex-direction: row;
+    align-items: center;
+    margin-top: -2px;
+    margin-bottom: 2px;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.6) !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    appearance: none;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+
+  .checkbox-label input[type="checkbox"]:checked {
+    background: #c9a84c;
+    border-color: #c9a84c;
+  }
+
+  .checkbox-label input[type="checkbox"]:checked::after {
+    content: '';
+    width: 4px;
+    height: 8px;
+    border: solid #0a0a12;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    position: absolute;
+    top: 2px;
+  }
+
+  .checkbox-label input[type="checkbox"]:hover {
+    border-color: rgba(201, 168, 76, 0.6);
   }
 
   /* Hata */

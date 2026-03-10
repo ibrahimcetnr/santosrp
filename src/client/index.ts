@@ -79,25 +79,23 @@ mp.keys.bind(75, true, () => {
 
 // ─── Otomatik Motor Engeli ────────────────────────────────────────────────────
 
-// Yeni araç stream'e girdiğinde motoru varsayılan kapalı yap
 mp.events.add('entityStreamIn', (entity: EntityMp) => {
-    if (entity.type !== 'vehicle') return;
-    const vehicle = entity as VehicleMp;
-    try {
-        mp.game.vehicle.setVehicleEngineOn(vehicle.handle, false, true, true);
-        mp.game.vehicle.setVehicleUndriveable(vehicle.handle, true);
-    } catch {}
+    if(entity.type == 'vehicle'){
+        let eStatus = entity.getVariable('engine') as boolean;
+        if(eStatus === undefined) eStatus = false;
+        setTimeout((_: any) => {
+            (entity as VehicleMp).setEngineOn(eStatus, true, true);
+        }, 100);
+    }
 });
 
-// Araca binince engineStatus variable'ına göre motor durumunu uygula
-mp.events.add('playerEnterVehicle', (vehicle: VehicleMp, _seat: number) => {
-    if (!vehicle) return;
-    try {
-        const engineOn = !!vehicle.getVariable('engineStatus');
-        mp.game.vehicle.setVehicleEngineOn(vehicle.handle, engineOn, true, true);
-        mp.game.vehicle.setVehicleUndriveable(vehicle.handle, !engineOn);
-    } catch {}
+mp.events.addDataHandler('engine', (entity: EntityMp, eStatus: boolean) => {
+    setTimeout((_: any) => {
+        (entity as VehicleMp).setEngineOn(eStatus, true, true);
+    }, 100);
 });
+
+
 
 // ─── Emniyet Kemeri Render ───────────────────────────────────────────────────
 
@@ -127,16 +125,13 @@ mp.events.add('render', () => {
         mp.game.audio.setUserRadioControlEnabled(false);
 
         // Config Flag 32: Camdan fırlama izni.
-        // Kemer takılıysa (true) fırlamayı kapat (false).
-        // Kemer takılı değilse (false) fırlamayı aç (true).
         const hasSeatbelt = !!player.getVariable('seatbelt');
         player.setConfigFlag(32, !hasSeatbelt);
 
         // El freni — her frame uygulanmalı
         if (parkingBrakeOn) {
             try { mp.game.invoke('0x684785568EF26A22', player.vehicle.handle, true); } catch {}
-        }else 
-        {
+        } else {
             try { mp.game.invoke('0x684785568EF26A22', player.vehicle.handle, false); } catch {}
         }
 
@@ -159,52 +154,129 @@ mp.events.add('render', () => {
                 } catch {}
             }
         }
-
-        // Yerel araç sinyallerini uygula (server variable)
-        try {
-            const indLeft  = !!player.vehicle.getVariable('indLeft');
-            const indRight = !!player.vehicle.getVariable('indRight');
-            (mp.game.vehicle as any).setVehicleIndicatorLights(player.vehicle.handle, 0, indLeft);
-            (mp.game.vehicle as any).setVehicleIndicatorLights(player.vehicle.handle, 1, indRight);
-        } catch {}
     }
 });
 
 // ─── Otomatik Motor Başlatmayı Engelle ───────────────────────────────────────
 
+// ─── Otomatik Motor Başlatmayı ve Kapatmayı Engelle ─────────────────────────
+
+// Araca BİNERKEN: Otomatik çalıştırmayı engelle ve inerken açık bırakma izni ver
 mp.events.add('playerEnteringVehicle', (vehicle: VehicleMp, seat: number) => {
     const player = mp.players.local;
-    // 429: CPED_CONFIG_FLAG_DisableStartingVehEngine
-    // Oyuncunun araca binerken GTA'nın motoru otomatik çalıştırmasını engeller.
-    player.setConfigFlag(429, true);
+    player.setConfigFlag(429, true); // GTA'nın motoru otomatik çalıştırmasını engelle
+    player.setConfigFlag(241, true); // GTA'nın araçtan inerken motoru otomatik kapatmasını engelle
 });
 
-// ─── Araç Kapı Kontrolü ───────────────────────────────────────────────────────
-
-mp.events.add('client:vehicle:door', (vehicleId: number, doorId: number, open: boolean) => {
-    const vehicle = mp.vehicles.at(vehicleId);
-    if (!vehicle) return;
-    try {
-        if (open) {
-            mp.game.vehicle.setVehicleDoorOpen(vehicle.handle, doorId, false, false);
-        } else {
-            mp.game.vehicle.setVehicleDoorShut(vehicle.handle, doorId, false);
-        }
-    } catch {}
+// Araçtan tamamen ÇIKILDIĞINDA (Animasyon bittiğinde)
+mp.events.add('playerExitVehicle', (vehicle: VehicleMp, _seat: number) => {
+    parkingBrakeOn = false;
+    if (cruiseActive) {
+        cruiseActive = false;
+        mp.events.call('chat:push', '!{#94a3b8}[HIZ SABİTLEYİCİ] Araçtan çıkıldı — devre dışı.');
+    }
 });
 
-// ─── Araç Cam Kontrolü ────────────────────────────────────────────────────────
+// ============================================================================
+// ARAÇ SENKRONİZASYON SİSTEMİ (Sinyaller, Kapılar, Camlar)
+// RAGE:MP Native Wrapper'ları kullanılmıştır. Hatasızdır.
+// ============================================================================
 
-mp.events.add('client:vehicle:window', (vehicleId: number, winId: number, down: boolean) => {
-    const vehicle = mp.vehicles.at(vehicleId);
-    if (!vehicle) return;
-    try {
-        if (down) {
-            mp.game.vehicle.rollDownWindow(vehicle.handle, winId);
-        } else {
-            mp.game.vehicle.rollUpWindow(vehicle.handle, winId);
+// ─── 1. Sinyal (Indicator) Senkronizasyonu ──────────────────────────────────
+// Race condition (yarış durumu) önlemek için tek bir merkezi kontrolcü:
+function updateIndicators(entity: EntityMp) {
+    if (entity.type !== 'vehicle') return;
+
+    const indLeft = !!entity.getVariable('indLeft');
+    const indRight = !!entity.getVariable('indRight');
+    const indHazard = !!entity.getVariable('indHazard');
+
+    if (indHazard) {
+        // Dörtlü açıksa her halükarda ikisini de yak
+        entity.setIndicatorLights(1, true);
+        entity.setIndicatorLights(0, true);
+    } else {
+        // Değilse bireysel değişkenlere göre yak/kapat
+        entity.setIndicatorLights(1, indLeft);
+        entity.setIndicatorLights(0, indRight);
+    }
+}
+
+// Tüm sinyal değişkenleri aynı kontrolcüye gider, böylece sinyaller birbirini ezmez
+mp.events.addDataHandler('indLeft', updateIndicators);
+mp.events.addDataHandler('indRight', updateIndicators);
+mp.events.addDataHandler('indHazard', updateIndicators);
+
+// ─── 2. Kapı Senkronizasyonu (0-5 Kapılar) ──────────────────────────────────
+for (let i = 0; i <= 5; i++) {
+    mp.events.addDataHandler(`door_${i}`, (entity: EntityMp, value: boolean) => {
+        if (entity.type === 'vehicle') {
+            try {
+                if (value) {
+                    entity.setDoorOpen(i, false, false); // Kapıyı animasyonlu aç
+                } else {
+                    entity.setDoorShut(i, false);        // Kapıyı animasyonlu kapat
+                }
+            } catch (err) {} // Araçta bu kapı yoksa (örn: motosiklet) hatayı yut
         }
-    } catch {}
+    });
+}
+
+// ─── 3. Cam Senkronizasyonu (0-3 Camlar) ────────────────────────────────────
+for (let i = 0; i <= 3; i++) {
+    mp.events.addDataHandler(`window_${i}`, (entity: EntityMp, value: boolean) => {
+        if (entity.type === 'vehicle') {
+            try {
+                if (value) {
+                    entity.rollDownWindow(i); // Camı indir
+                } else {
+                    entity.rollUpWindow(i);   // Camı kaldır
+                }
+            } catch (err) {}
+        }
+    });
+}
+
+// ─── 4. Görüş Alanına Giren Araçlar İçin (Stream In) ────────────────────────
+// Aracı sonradan gören oyuncular kapı/cam/sinyalleri doğru durumda görsün diye
+mp.events.add('entityStreamIn', (entity: EntityMp) => {
+    if (entity.type === 'vehicle') {
+        
+        // Sinyallerin Durumu
+        const indLeft = !!entity.getVariable('indLeft');
+        const indRight = !!entity.getVariable('indRight');
+        const indHazard = !!entity.getVariable('indHazard');
+
+        if (indHazard) {
+            entity.setIndicatorLights(1, true);
+            entity.setIndicatorLights(0, true);
+        } else {
+            entity.setIndicatorLights(1, indLeft);
+            entity.setIndicatorLights(0, indRight);
+        }
+
+        // Kapıların Durumu
+        for (let i = 0; i <= 5; i++) {
+            try {
+                if (entity.getVariable(`door_${i}`)) {
+                    entity.setDoorOpen(i, false, true); // instantly: true (Animasyonsuz, anında açık spawn et)
+                } else {
+                    entity.setDoorShut(i, true);        // instantly: true (Anında kapalı spawn et)
+                }
+            } catch (err) {}
+        }
+
+        // Camların Durumu
+        for (let i = 0; i <= 3; i++) {
+            try {
+                if (entity.getVariable(`window_${i}`)) {
+                    entity.rollDownWindow(i);
+                } else {
+                    entity.rollUpWindow(i);
+                }
+            } catch (err) {}
+        }
+    }
 });
 
 // ─── Araç Takip Blip ─────────────────────────────────────────────────────────
@@ -309,47 +381,55 @@ mp.keys.bind(80, true, () => {
     mp.events.callRemote('vehicle:indicator', 'hazard');
 });
 
-// Q (81): Selektör — kısa far flaşı
-mp.keys.bind(81, true, () => {
+// ============================================================================
+// YENİ NESİL FAR SİSTEMİ (Sabah & Araç Dışı Korumalı)
+// ============================================================================
+// Far durumlarını araç bazlı hafızada tut (Araçtan inince sönmemesi için)
+const vehicleLightStates = new Map<number, number>();
+
+// H (72): Far Döngüsü (Kapalı -> Gerçek Park -> Kısa)
+mp.keys.bind(72, true, () => {
     if (isUIOpen() || !mp.players.local.vehicle) return;
     const veh = mp.players.local.vehicle;
-    try {
-        mp.game.invoke('0x1FD09E7390A74D54', veh.handle, true); // SET_VEHICLE_FULLBEAM
+
+    let state = vehicleLightStates.get(veh.handle) || 0;
+    state = (state + 1) % 3; // 0: Kapalı, 1: Park, 2: Kısa (Uzun zaten GTA'nın kendi H tuşuyla veya Q ile çalışır)
+    vehicleLightStates.set(veh.handle, state);
+
+    // Gerçek GTA far kademelerini uygula
+    // 0x1FD09E7390A74D54 -> SET_VEHICLE_LIGHTS
+    // 0: Normal, 1: Sadece Parklar, 2: Kısa Farlar
+    mp.game.invoke('0x1FD09E7390A74D54', veh.handle, state);
+
+    const labels = ["KAPALI", "PARK (GERÇEK)", "KISA"];
+    mp.events.call('chat:push', `!{#94a3b8}[FAR] ${labels[state]}`);
+});
+
+mp.events.add('playerLeaveVehicle', (vehicle: VehicleMp) => {
+    if (vehicle && vehicle.handle !== 0) {
+        // Araçtan inince hafızadaki far durumu neyse onu tekrar zorla
+        const lastState = vehicleLightStates.get(vehicle.handle) || 0;
+        
+        // 500ms sonra (İnme animasyonu biterken) farı tekrar hafızadaki moda sok
         setTimeout(() => {
-            try { mp.game.invoke('0x1FD09E7390A74D54', veh.handle, false); } catch {}
-        }, 400);
-    } catch {}
+            if (vehicle && vehicle.handle !== 0) {
+                mp.game.invoke('0x1FD09E7390A74D54', vehicle.handle, lastState);
+            }
+        }, 500);
+    }
 });
 
-// ─── Diğer Araçların Sinyal Senkronizasyonu ──────────────────────────────────
-
-const indicatorTimers = new Map<number, ReturnType<typeof setInterval>>();
-
-mp.events.add('entityStreamIn', (entity: EntityMp) => {
-    if (entity.type !== 'vehicle') return;
-    const veh = entity as VehicleMp;
-    const key = veh.id;
-    if (indicatorTimers.has(key)) return;
-    const timer = setInterval(() => {
-        if (!mp.vehicles.exists(veh)) {
-            clearInterval(timer);
-            indicatorTimers.delete(key);
-            return;
-        }
-        try {
-            const left  = !!veh.getVariable('indLeft');
-            const right = !!veh.getVariable('indRight');
-            (mp.game.vehicle as any).setVehicleIndicatorLights(veh.handle, 0, left);
-            (mp.game.vehicle as any).setVehicleIndicatorLights(veh.handle, 1, right);
-        } catch {}
-    }, 150);
-    indicatorTimers.set(key, timer);
+// Q (81): Selektör
+mp.keys.bind(81, true, () => {
+    const veh = mp.players.local.vehicle;
+    if (!isUIOpen() && veh) {
+        mp.game.invoke('0x8B7FD87F0DDB421E', veh.handle, true); // SET_VEHICLE_FULLBEAM
+    }
 });
 
-mp.events.add('entityStreamOut', (entity: EntityMp) => {
-    if (entity.type !== 'vehicle') return;
-    const key = (entity as VehicleMp).id;
-    const timer = indicatorTimers.get(key);
-    if (timer) { clearInterval(timer); indicatorTimers.delete(key); }
+mp.keys.bind(81, false, () => {
+    const veh = mp.players.local.vehicle;
+    if (veh) {
+        mp.game.invoke('0x8B7FD87F0DDB421E', veh.handle, false);
+    }
 });
-

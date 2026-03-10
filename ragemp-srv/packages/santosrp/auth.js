@@ -245,9 +245,9 @@ function registerAuthEvents() {
             player.accountUsername = account.username;
             clearAttempts(rateLimitKey);
             console.log(`[AUTH] Başarılı giriş: ${cleanUsername} (accountId: ${account.id})`);
-            // Oyuncuyu ana dünyaya geri getir (playerJoin'de 1. dimension'a alınmıştı)
+            // Oyuncuyu karakter seçim ekranı için izole bir boyuta al (diğer oyuncuları görmemesi için)
             try {
-                player.dimension = 0;
+                player.dimension = player.id + 10000;
             }
             catch {
                 // Pointer geçersizleştiyse call da zaten çalışmayacak
@@ -337,6 +337,7 @@ function registerAuthEvents() {
             }
         }
         player.call('client:hideLogin');
+        // Default dimension'a veya veritabanından alınan dimension'a geri al
         player.dimension = 0;
         const isMale = charRow.gender !== 1;
         player.model = mp.joaat(isMale ? 'mp_m_freemode_01' : 'mp_f_freemode_01');
@@ -407,6 +408,7 @@ function registerAuthEvents() {
                 return;
             player.characterId = charId;
             player.call('client:hideLogin');
+            // İzole boyuttan çıkarıp ana dünyaya geri getir
             player.dimension = 0;
             const isFemale = appearance.gender === 1;
             player.model = mp.joaat(isFemale ? 'mp_f_freemode_01' : 'mp_m_freemode_01');
