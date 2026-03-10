@@ -340,7 +340,7 @@ export function registerAuthEvents(): void {
 
     // Yetkilendirme + karakter verisi
     const charRes = await query(
-      'SELECT id, first_name, last_name, money, gender, position, char_data FROM characters WHERE id = $1 AND account_id = $2',
+      'SELECT id, first_name, last_name, money, gender, position, char_data, faction_id, faction_rank FROM characters WHERE id = $1 AND account_id = $2',
       [charId, accountId]
     );
     if (!isPlayerValid(player)) return;
@@ -396,6 +396,15 @@ export function registerAuthEvents(): void {
     const charName = `${charRow.first_name} ${charRow.last_name}`;
     player.characterName = charName;
     player.setVariable('characterName', charName);
+
+    // Faction bilgilerini ata (F3 paneli ve sunucu taraflı kontroller için)
+    const factionId   = charRow.faction_id   ?? null;
+    const factionRank = charRow.faction_rank  ?? 0;
+    player.setVariable('faction_id',   factionId);
+    player.setVariable('faction_rank', factionRank);
+    (player as any).factionId   = factionId;
+    (player as any).factionRank = factionRank;
+
     player.call('client:startHUD', [charName, player.id, charRow.money]);
 
     // Anlık sunucu saatini hemen gönder (30s interval beklenmez)

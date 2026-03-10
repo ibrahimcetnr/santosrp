@@ -504,6 +504,38 @@ mp.events.add("render", () => {
   }
 });
 
+// src/client/faction.ts
+function isUIOpen() {
+  return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
+}
+mp.keys.bind(114, true, () => {
+  if (isUIOpen()) return;
+  mp.events.callRemote("server:requestFactionData");
+});
+mp.events.add("client:showFactionUI", (factionDataJson) => {
+  const browser = getGameBrowser();
+  if (!browser) return;
+  mp.gui.cursor.show(true, true);
+  const escaped = factionDataJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  browser.execute(`window.openFactionUI && window.openFactionUI('${escaped}')`);
+  browser.execute(`
+    window.__factionInviteBridge = function() {
+      if (typeof window.mp !== 'undefined') {
+        window.mp.trigger('client:factionInviteClick');
+      }
+    };
+  `);
+});
+mp.events.add("client:closeFactionUI", () => {
+  mp.gui.cursor.show(false, false);
+});
+mp.events.add("client:factionInviteClick", () => {
+  mp.events.callRemote("server:factionInviteRequest");
+});
+function initFaction() {
+  console.log("[CLIENT] Faction sistemi ba\u015Flat\u0131ld\u0131.");
+}
+
 // src/client/creator.ts
 var CREATOR_ANIM_DICT = "nm@test_character_creator";
 var CREATOR_ANIM_CLIP = "test_idle_ad";
@@ -813,24 +845,25 @@ mp.players.local.setConfigFlag(429, true);
 registerClientAuthEvents();
 initHUD();
 initNametags();
+initFaction();
 mp.events.add("browserCreated", (browser) => {
   console.log("[CLIENT] Browser olu\u015Fturuldu.");
 });
 console.log("[CLIENT] SantosRP client-side ba\u015Flat\u0131ld\u0131!");
 initCreator();
-function isUIOpen() {
+function isUIOpen2() {
   return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
 }
 mp.keys.bind(77, true, () => {
-  if (isUIOpen()) return;
+  if (isUIOpen2()) return;
   mp.events.callRemote("runCommand", "/motor");
 });
 mp.keys.bind(76, true, () => {
-  if (isUIOpen()) return;
+  if (isUIOpen2()) return;
   mp.events.callRemote("runCommand", "/kilit");
 });
 mp.keys.bind(75, true, () => {
-  if (isUIOpen()) return;
+  if (isUIOpen2()) return;
   if (!mp.players.local.vehicle) return;
   mp.events.callRemote("runCommand", "/kemer");
 });
@@ -1043,12 +1076,12 @@ mp.events.add("playerExitVehicle", (_vehicle, _seat) => {
   }
 });
 mp.keys.bind(88, true, () => {
-  if (isUIOpen() || !mp.players.local.vehicle) return;
+  if (isUIOpen2() || !mp.players.local.vehicle) return;
   parkingBrakeOn = !parkingBrakeOn;
   mp.events.call("chat:push", parkingBrakeOn ? "!{#ef4444}[EL FREN\u0130] \xC7ekildi." : "!{#94a3b8}[EL FREN\u0130] B\u0131rak\u0131ld\u0131.");
 });
 mp.keys.bind(190, true, () => {
-  if (isUIOpen()) return;
+  if (isUIOpen2()) return;
   const veh = mp.players.local.vehicle;
   if (!veh || !veh.engine) return;
   if (veh.getPedInSeat(-1) !== mp.players.local.handle) return;
@@ -1068,15 +1101,15 @@ mp.keys.bind(190, true, () => {
   }
 });
 mp.keys.bind(219, true, () => {
-  if (isUIOpen() || !mp.players.local.vehicle) return;
+  if (isUIOpen2() || !mp.players.local.vehicle) return;
   mp.events.callRemote("vehicle:indicator", "left");
 });
 mp.keys.bind(221, true, () => {
-  if (isUIOpen() || !mp.players.local.vehicle) return;
+  if (isUIOpen2() || !mp.players.local.vehicle) return;
   mp.events.callRemote("vehicle:indicator", "right");
 });
 mp.keys.bind(80, true, () => {
-  if (isUIOpen() || !mp.players.local.vehicle) return;
+  if (isUIOpen2() || !mp.players.local.vehicle) return;
   mp.events.callRemote("vehicle:indicator", "hazard");
 });
 var vehicleLightStates = /* @__PURE__ */ new Map();
@@ -1084,7 +1117,7 @@ mp.events.add("entityStreamOut", (entity) => {
   if (entity.type === "vehicle") vehicleLightStates.delete(entity.remoteId);
 });
 mp.keys.bind(72, true, () => {
-  if (isUIOpen() || !mp.players.local.vehicle) return;
+  if (isUIOpen2() || !mp.players.local.vehicle) return;
   const veh = mp.players.local.vehicle;
   let state = vehicleLightStates.get(veh.remoteId) || 0;
   state = (state + 1) % 3;
@@ -1105,7 +1138,7 @@ mp.events.add("playerLeaveVehicle", (vehicle) => {
 });
 mp.keys.bind(81, true, () => {
   const veh = mp.players.local.vehicle;
-  if (!isUIOpen() && veh) {
+  if (!isUIOpen2() && veh) {
     mp.game.invoke("0x8B7FD87F0DDB421E", veh.handle, true);
   }
 });

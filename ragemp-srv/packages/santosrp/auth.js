@@ -335,7 +335,7 @@ function registerAuthEvents() {
         if (!accountId)
             return; // Giriş yapmamış
         // Yetkilendirme + karakter verisi
-        const charRes = await (0, db_1.query)('SELECT id, first_name, last_name, money, gender, position, char_data FROM characters WHERE id = $1 AND account_id = $2', [charId, accountId]);
+        const charRes = await (0, db_1.query)('SELECT id, first_name, last_name, money, gender, position, char_data, faction_id, faction_rank FROM characters WHERE id = $1 AND account_id = $2', [charId, accountId]);
         if (!(0, safeEvent_1.isPlayerValid)(player))
             return;
         if (charRes.rows.length === 0) {
@@ -384,6 +384,13 @@ function registerAuthEvents() {
         const charName = `${charRow.first_name} ${charRow.last_name}`;
         player.characterName = charName;
         player.setVariable('characterName', charName);
+        // Faction bilgilerini ata (F3 paneli ve sunucu taraflı kontroller için)
+        const factionId = charRow.faction_id ?? null;
+        const factionRank = charRow.faction_rank ?? 0;
+        player.setVariable('faction_id', factionId);
+        player.setVariable('faction_rank', factionRank);
+        player.factionId = factionId;
+        player.factionRank = factionRank;
         player.call('client:startHUD', [charName, player.id, charRow.money]);
         // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
         const _now = new Date();

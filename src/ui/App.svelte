@@ -3,6 +3,7 @@
   import CharacterSelect from './src/components/CharacterSelect.svelte';
   import CharacterCreator from './src/components/CharacterCreator.svelte';
   import HUD from './src/components/HUD/HUD.svelte';
+  import FactionPanel from './src/components/FactionPanel.svelte';
 
   let username = $state('');
   let password = $state('');
@@ -17,6 +18,8 @@
   let commandList = $state<any[]>([]);
   let passwordInput: HTMLInputElement;
   let rememberMe = $state(false);
+  let isFactionPanelOpen = $state(false);
+  let currentFactionData = $state<any>(null);
 
   function triggerLogin() {
     if (!username.trim() || !password.trim()) {
@@ -78,12 +81,34 @@
       view = 'characterSelect';
     };
 
+    window.openFactionUI = (dataJson: string) => {
+      try {
+        currentFactionData = JSON.parse(dataJson);
+      } catch {
+        currentFactionData = null;
+      }
+      isFactionPanelOpen = true;
+    };
+
     // Komut listesini kaydet
     window.updateCommandList = (commands: any[]) => {
       commandList = commands;
       console.log(`[APP] ${commands.length} komut alındı (adminLevel: ${myAdminLevel})`);
     };
   });
+
+  function closeFactionUI() {
+    isFactionPanelOpen = false;
+    if (typeof (window as any).mp !== 'undefined') {
+      (window as any).mp.trigger('client:closeFactionUI');
+    }
+  }
+
+  function inviteMemberUI() {
+    if (typeof (window as any).mp !== 'undefined') {
+      (window as any).mp.trigger('client:factionInviteClick');
+    }
+  }
 
   function onCancelCreator() {
     view = 'characterSelect';
@@ -185,6 +210,9 @@
   <CharacterCreator characterId={pendingCharacterId} gender={pendingGender} charData={pendingCharData} onCancel={onCancelCreator} />
 {:else if view === 'playing'}
   <HUD {myAdminLevel} commands={commandList} />
+  {#if isFactionPanelOpen && currentFactionData}
+    <FactionPanel factionData={currentFactionData} onClose={closeFactionUI} onInviteMember={inviteMemberUI} />
+  {/if}
 {/if}
 
 <style>

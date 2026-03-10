@@ -89,6 +89,11 @@ declare global {
     // Auth Functions
     onLoginSuccess?: (username: string, adminLevel: number, charsJson: string) => void;
     onLoginError?: (message: string) => void;
+    setSavedCredentials?: (user: string, pass: string) => void;
+
+    // Faction Panel
+    openFactionUI?: (dataJson: string) => void;
+    closeFactionUI?: () => void;
     
     // Command System
     updateCommandList?: (commands: CommandData[]) => void;

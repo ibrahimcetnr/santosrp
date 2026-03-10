@@ -16,6 +16,7 @@ const payday_1 = require("./payday");
 const weather_1 = require("./weather");
 const VehicleManager_1 = require("./VehicleManager");
 const VehicleDataManager_1 = require("./VehicleDataManager");
+const FactionManager_1 = require("./FactionManager");
 require("../shared/types"); // PlayerMp augmentation
 let isShuttingDown = false;
 // ─── Global Hata Yakalayıcılar ────────────────────────────────────────────────
@@ -50,6 +51,8 @@ setInterval(() => {
 (0, payday_1.startPayday)();
 // Gerçek zamanlı hava & saat sistemini başlat
 (0, weather_1.initWeatherSystem)();
+// Birlik sistemini başlat
+(0, FactionManager_1.initFactionManager)();
 // Araç sistemi: önce kurtarma, sonra event listenerlar
 (async () => {
     await (0, VehicleDataManager_1.initVehicleDataManager)();

@@ -12,6 +12,7 @@ import { startPayday } from './payday';
 import { initWeatherSystem } from './weather';
 import { recoverVehicles, initVehicleManager, saveAllVehicles } from './VehicleManager';
 import { initVehicleDataManager } from './VehicleDataManager';
+import { initFactionManager } from './FactionManager';
 
 import '../shared/types'; // PlayerMp augmentation
 
@@ -58,6 +59,9 @@ startPayday();
 
 // Gerçek zamanlı hava & saat sistemini başlat
 initWeatherSystem();
+
+// Birlik sistemini başlat
+initFactionManager();
 
 // Araç sistemi: önce kurtarma, sonra event listenerlar
 (async () => {
