@@ -1,49 +1,51 @@
 <script lang="ts">
   import { FactionType, getFactionTypeName, getFactionCategory } from '../../../shared/types';
 
-  export let factionData = {
+  const GOLD = '#c9a84c';
+
+  const DEFAULT_FACTION = {
     id: 1,
-    name: "Los Santos Polis Departmanı",
-    founderName: "James Morrison",
+    name: 'Los Santos Polis Departmanı',
+    founderName: 'James Morrison',
     type: FactionType.LAW_ENFORCEMENT,
-    approvals: {
-      isVerified: true,
-      canHaveWeapons: true,
-    },
+    approvals: { isVerified: true, canHaveWeapons: true },
     stockValue: 125000,
     members: [
-      { id: 1, name: "James Morrison", rank: 5, division: "Komutanlık" },
-      { id: 2, name: "Sarah Connor", rank: 3, division: "Trafik" },
-      { id: 3, name: "Michael Torres", rank: 2, division: "Özel Harekat" },
+      { id: 1, name: 'James Morrison', rank: 5, division: 'Komutanlık' },
+      { id: 2, name: 'Sarah Connor',   rank: 3, division: 'Trafik' },
+      { id: 3, name: 'Michael Torres', rank: 2, division: 'Özel Harekat' },
     ],
-    tasks: [] as any[],
+    tasks:     [] as any[],
     ranks: [
-      { id: 1, name: "Stajyer", salary: 500 },
-      { id: 2, name: "Memur", salary: 1000 },
-      { id: 3, name: "Komiser", salary: 2500 },
-      { id: 4, name: "Başkomiser", salary: 4000 },
-      { id: 5, name: "Komutan", salary: 7500 },
+      { id: 1, name: 'Stajyer',    salary: 500  },
+      { id: 2, name: 'Memur',      salary: 1000 },
+      { id: 3, name: 'Komiser',    salary: 2500 },
+      { id: 4, name: 'Başkomiser', salary: 4000 },
+      { id: 5, name: 'Komutan',    salary: 7500 },
     ],
     divisions: [
-      { id: 1, name: "Trafik" },
-      { id: 2, name: "Özel Harekat" },
-      { id: 3, name: "Komutanlık" },
+      { id: 1, name: 'Trafik' },
+      { id: 2, name: 'Özel Harekat' },
+      { id: 3, name: 'Komutanlık' },
     ],
     vehicles: [] as any[],
   };
 
-  export let onClose: (() => void) | undefined = undefined;
-  export let onInviteMember: (() => void) | undefined = undefined;
+  let {
+    factionData = DEFAULT_FACTION,
+    onClose = undefined,
+    onInviteMember = undefined,
+  }: {
+    factionData?: any;
+    onClose?: () => void;
+    onInviteMember?: () => void;
+  } = $props();
 
-  let activeTab = 'info';
+  let activeTab = $state('info');
 
-  $: isLegal = getFactionCategory(factionData.type) === 'LEGAL';
-  $: category = getFactionCategory(factionData.type);
-  $: typeName = getFactionTypeName(factionData.type);
-  $: accentColor =
-    category === 'LEGAL' ? '#3b82f6' :
-    category === 'BUSINESS' ? '#22c55e' :
-    '#ef4444';
+  const isLegal   = $derived(getFactionCategory(factionData.type) === 'LEGAL');
+  const category  = $derived(getFactionCategory(factionData.type));
+  const typeName  = $derived(getFactionTypeName(factionData.type));
 
   const tabs = [
     { id: 'info',      label: 'Bilgiler',         icon: '◈' },
@@ -55,12 +57,7 @@
   ];
 
   function close() {
-    if (onClose) {
-      onClose();
-    } else if (typeof (window as any).mp !== 'undefined') {
-      // Fallback: prop sağlanmadıysa doğrudan RAGE event tetikle
-      (window as any).mp.trigger('client:closeFactionUI');
-    }
+    if (onClose) onClose();
   }
 </script>
 
@@ -68,12 +65,12 @@
   <!-- ── Sidebar ─────────────────────────────────────────── -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="faction-avatar" style="background: {accentColor}20; border-color: {accentColor}40; color: {accentColor}">
+      <div class="faction-avatar">
         {factionData.name[0]}
       </div>
       <div class="faction-meta">
         <span class="faction-title">{factionData.name}</span>
-        <span class="faction-badge" style="background: {accentColor}20; color: {accentColor}">{category}</span>
+        <span class="faction-badge">{category}</span>
       </div>
     </div>
 
@@ -82,8 +79,7 @@
         <button
           class="nav-btn"
           class:active={activeTab === tab.id}
-          style={activeTab === tab.id ? `border-left-color: ${accentColor}; color: ${accentColor};` : ''}
-          on:click={() => activeTab = tab.id}
+          onclick={() => activeTab = tab.id}
         >
           <span class="nav-icon">{tab.icon}</span>
           {tab.label}
@@ -91,7 +87,7 @@
       {/each}
     </nav>
 
-    <button class="close-btn" on:click={close}>
+    <button class="close-btn" onclick={close}>
       ✕ Kapat
     </button>
   </aside>
@@ -116,7 +112,7 @@
           <div class="info-row">
             <span class="info-label">Birlik Tipi</span>
             <span class="info-value">
-              <span class="category-tag" style="background:{accentColor}20; color:{accentColor}">{category}</span>
+              <span class="category-tag">{category}</span>
             </span>
           </div>
           <div class="info-row">
@@ -172,7 +168,7 @@
       <section class="tab-section">
         <h2 class="tab-title">Üyeler</h2>
         <div class="action-bar">
-          <button class="btn btn-success" on:click={() => onInviteMember && onInviteMember()}>+ Üye Al</button>
+          <button class="btn btn-success" onclick={() => onInviteMember && onInviteMember()}>+ Üye Al</button>
         </div>
 
         <div class="member-list">
@@ -295,13 +291,16 @@
     transform: translate(-50%, -50%);
     width: 900px;
     height: 600px;
-    background: #1e1e24;
+    background: rgba(10, 10, 18, 0.85);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 16px;
     display: flex;
     overflow: hidden;
     box-shadow:
-      0 32px 80px rgba(0, 0, 0, 0.7),
-      0 0 0 1px rgba(255, 255, 255, 0.05);
+      0 32px 80px rgba(0, 0, 0, 0.75),
+      0 0 0 1px rgba(201, 168, 76, 0.08);
     font-family: 'Segoe UI', 'Inter', sans-serif;
     color: #e2e2e8;
     user-select: none;
@@ -311,10 +310,10 @@
   .sidebar {
     width: 250px;
     min-width: 250px;
-    background: #16161b;
+    background: rgba(0, 0, 0, 0.35);
     display: flex;
     flex-direction: column;
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid rgba(201, 168, 76, 0.12);
   }
 
   .sidebar-brand {
@@ -322,7 +321,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(201, 168, 76, 0.1);
     min-height: 80px;
   }
 
@@ -331,13 +330,14 @@
     height: 44px;
     min-width: 44px;
     border-radius: 12px;
-    border: 1px solid;
+    border: 1px solid rgba(201, 168, 76, 0.4);
+    background: rgba(201, 168, 76, 0.12);
+    color: #c9a84c;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 20px;
     font-weight: 700;
-    letter-spacing: 0;
   }
 
   .faction-meta {
@@ -350,7 +350,7 @@
   .faction-title {
     font-size: 12px;
     font-weight: 600;
-    color: #d0d0d8;
+    color: #d8cfa8;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -364,6 +364,9 @@
     border-radius: 20px;
     text-transform: uppercase;
     width: fit-content;
+    background: rgba(201, 168, 76, 0.15);
+    color: #c9a84c;
+    border: 1px solid rgba(201, 168, 76, 0.3);
   }
 
   /* ── Navigation ────────────────────────────────────────── */
@@ -386,36 +389,38 @@
     border: none;
     border-left: 2px solid transparent;
     border-radius: 8px;
-    color: #8888a0;
+    color: #7a7060;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     text-align: left;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
   }
 
   .nav-btn:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #c8c8d8;
+    background: rgba(201, 168, 76, 0.06);
+    color: #c9a84c;
   }
 
   .nav-btn.active {
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(201, 168, 76, 0.1);
+    color: #c9a84c;
     font-weight: 600;
+    border-left-color: #c9a84c;
     border-radius: 0 8px 8px 0;
   }
 
   .nav-icon {
     font-size: 11px;
-    opacity: 0.65;
+    opacity: 0.7;
   }
 
   /* ── Close Button ──────────────────────────────────────── */
   .close-btn {
     margin: 8px 12px 14px;
     padding: 10px 16px;
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.25);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.22);
     border-radius: 10px;
     color: #f87171;
     font-size: 13px;
@@ -426,7 +431,7 @@
   }
 
   .close-btn:hover {
-    background: rgba(239, 68, 68, 0.22);
+    background: rgba(239, 68, 68, 0.2);
     border-color: rgba(239, 68, 68, 0.45);
   }
 
@@ -436,12 +441,12 @@
     overflow-y: auto;
     padding: 28px 30px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    scrollbar-color: rgba(201, 168, 76, 0.2) transparent;
   }
 
   .content::-webkit-scrollbar { width: 4px; }
   .content::-webkit-scrollbar-track { background: transparent; }
-  .content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  .content::-webkit-scrollbar-thumb { background: rgba(201, 168, 76, 0.2); border-radius: 4px; }
 
   .tab-section {
     display: flex;
@@ -452,17 +457,17 @@
   .tab-title {
     font-size: 18px;
     font-weight: 700;
-    color: #f0f0f8;
+    color: #e8dcb0;
     letter-spacing: -0.01em;
     padding-bottom: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid rgba(201, 168, 76, 0.15);
     margin: 0;
   }
 
   .sub-title {
     font-size: 13px;
     font-weight: 600;
-    color: #8888a0;
+    color: #7a7060;
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
@@ -474,7 +479,7 @@
     gap: 1px;
     border-radius: 12px;
     overflow: hidden;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .info-row {
@@ -487,7 +492,7 @@
   }
 
   .info-row:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(201, 168, 76, 0.05);
   }
 
   .info-label {
@@ -495,20 +500,15 @@
     min-width: 130px;
     font-size: 12px;
     font-weight: 600;
-    color: #6868808;
+    color: #5a5040;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: #7070888;
-  }
-
-  .info-label {
-    color: #70708a;
   }
 
   .info-value {
     font-size: 14px;
     font-weight: 500;
-    color: #d8d8e8;
+    color: #d8d0b0;
     flex: 1;
   }
 
@@ -520,6 +520,9 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    background: rgba(201, 168, 76, 0.15);
+    color: #c9a84c;
+    border: 1px solid rgba(201, 168, 76, 0.3);
   }
 
   .badges-wrap {
@@ -540,27 +543,27 @@
   }
 
   .badge-green {
-    background: rgba(34, 197, 94, 0.15);
-    color: #4ade80;
-    border: 1px solid rgba(34, 197, 94, 0.25);
+    background: rgba(201, 168, 76, 0.15);
+    color: #c9a84c;
+    border: 1px solid rgba(201, 168, 76, 0.3);
   }
 
   .badge-blue {
-    background: rgba(59, 130, 246, 0.15);
-    color: #60a5fa;
-    border: 1px solid rgba(59, 130, 246, 0.25);
+    background: rgba(201, 168, 76, 0.1);
+    color: #d4b86a;
+    border: 1px solid rgba(201, 168, 76, 0.2);
   }
 
   .badge-gray {
-    background: rgba(255,255,255, 0.06);
-    color: #8888a0;
-    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: #7a7060;
+    border: 1px solid rgba(255, 255, 255, 0.07);
   }
 
   .stock-value {
     font-size: 15px;
     font-weight: 700;
-    color: #4ade80;
+    color: #c9a84c;
     font-variant-numeric: tabular-nums;
   }
 
@@ -572,15 +575,16 @@
     justify-content: center;
     padding: 48px 20px;
     gap: 12px;
-    color: #55556a;
+    color: #4a4030;
     font-size: 14px;
     border-radius: 12px;
-    background: rgba(255,255,255,0.02);
+    background: rgba(255, 255, 255, 0.02);
   }
 
   .empty-icon {
     font-size: 32px;
-    opacity: 0.3;
+    opacity: 0.25;
+    color: #c9a84c;
   }
 
   /* ── Action Bars ───────────────────────────────────────── */
@@ -593,14 +597,14 @@
   .action-bar-bottom {
     margin-top: 4px;
     padding-top: 14px;
-    border-top: 1px solid rgba(255,255,255,0.06);
+    border-top: 1px solid rgba(201, 168, 76, 0.1);
   }
 
   /* ── Buttons ───────────────────────────────────────────── */
   .btn {
     padding: 8px 18px;
     border-radius: 8px;
-    border: none;
+    border: 1px solid transparent;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -611,10 +615,33 @@
   .btn:hover { filter: brightness(1.15); }
   .btn:active { transform: scale(0.97); }
 
-  .btn-success  { background: #16a34a; color: #fff; }
-  .btn-danger   { background: #dc2626; color: #fff; }
-  .btn-warning  { background: #d97706; color: #fff; }
-  .btn-primary  { background: #2563eb; color: #fff; }
+  /* Altın — birincil eylemler */
+  .btn-success {
+    background: rgba(201, 168, 76, 0.15);
+    color: #c9a84c;
+    border-color: rgba(201, 168, 76, 0.35);
+  }
+
+  /* Kırmızı — yalnızca yıkıcı işlemler */
+  .btn-danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.28);
+  }
+
+  /* Turuncu-altın — düzenleme eylemleri */
+  .btn-warning {
+    background: rgba(201, 168, 76, 0.08);
+    color: #c9a84c;
+    border-color: rgba(201, 168, 76, 0.2);
+  }
+
+  /* Altın — nötr birincil */
+  .btn-primary {
+    background: rgba(201, 168, 76, 0.15);
+    color: #c9a84c;
+    border-color: rgba(201, 168, 76, 0.35);
+  }
 
   .btn-sm {
     padding: 5px 12px;
@@ -624,12 +651,12 @@
 
   .btn-outline {
     background: transparent;
-    border: 1px solid rgba(255,255,255,0.18);
-    color: #c0c0d0;
+    border: 1px solid rgba(201, 168, 76, 0.2);
+    color: #c9a84c;
   }
 
   .btn-outline:hover {
-    background: rgba(255,255,255,0.07);
+    background: rgba(201, 168, 76, 0.08);
   }
 
   /* ── Members ───────────────────────────────────────────── */
@@ -638,7 +665,7 @@
     flex-direction: column;
     border-radius: 12px;
     overflow: hidden;
-    background: rgba(255,255,255,0.02);
+    background: rgba(255, 255, 255, 0.02);
     gap: 1px;
   }
 
@@ -646,13 +673,12 @@
     display: grid;
     grid-template-columns: 1fr 120px 140px;
     padding: 9px 14px;
-    background: rgba(255,255,255,0.04);
+    background: rgba(201, 168, 76, 0.06);
     font-size: 11px;
     font-weight: 700;
-    color: #6868808;
+    color: #5a5040;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #60607a;
   }
 
   .member-row {
@@ -660,14 +686,14 @@
     grid-template-columns: 1fr 120px 140px;
     align-items: center;
     padding: 11px 14px;
-    background: rgba(255,255,255,0.02);
+    background: rgba(255, 255, 255, 0.02);
     font-size: 13px;
     transition: background 0.12s;
   }
 
-  .member-row:hover { background: rgba(255,255,255,0.055); }
+  .member-row:hover { background: rgba(201, 168, 76, 0.05); }
 
-  .member-name { font-weight: 500; color: #d8d8e8; }
+  .member-name { font-weight: 500; color: #d8d0b0; }
 
   .member-rank-tag {
     display: inline-block;
@@ -675,12 +701,13 @@
     border-radius: 20px;
     font-size: 11px;
     font-weight: 600;
-    background: rgba(255,255,255,0.07);
-    color: #a0a0b8;
+    background: rgba(201, 168, 76, 0.1);
+    color: #c9a84c;
+    border: 1px solid rgba(201, 168, 76, 0.2);
     width: fit-content;
   }
 
-  .member-div { color: #8080a0; font-size: 12px; }
+  .member-div { color: #5a5040; font-size: 12px; }
 
   /* ── Ranks ─────────────────────────────────────────────── */
   .rank-list {
@@ -694,9 +721,9 @@
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.05);
+    border: 1px solid rgba(201, 168, 76, 0.08);
   }
 
   .rank-num {
@@ -707,19 +734,19 @@
     align-items: center;
     justify-content: center;
     border-radius: 6px;
-    background: rgba(255,255,255,0.07);
+    background: rgba(201, 168, 76, 0.1);
     font-size: 11px;
     font-weight: 700;
-    color: #8888a0;
+    color: #c9a84c;
   }
 
   .rank-name-input,
   .salary-input,
   .div-name-input {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.09);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(201, 168, 76, 0.15);
     border-radius: 7px;
-    color: #d0d0e0;
+    color: #d8d0b0;
     font-size: 13px;
     padding: 6px 10px;
     outline: none;
@@ -731,7 +758,7 @@
   .rank-name-input:focus,
   .salary-input:focus,
   .div-name-input:focus {
-    border-color: rgba(255,255,255,0.22);
+    border-color: rgba(201, 168, 76, 0.45);
   }
 
   .salary-group {
@@ -744,7 +771,7 @@
   .salary-label {
     font-size: 11px;
     font-weight: 600;
-    color: #60607a;
+    color: #5a5040;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     white-space: nowrap;
@@ -766,9 +793,9 @@
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.05);
+    border: 1px solid rgba(201, 168, 76, 0.08);
   }
 
   .div-num {
@@ -779,10 +806,10 @@
     align-items: center;
     justify-content: center;
     border-radius: 6px;
-    background: rgba(255,255,255,0.07);
+    background: rgba(201, 168, 76, 0.1);
     font-size: 11px;
     font-weight: 700;
-    color: #8888a0;
+    color: #c9a84c;
   }
 
   .div-name-input { flex: 1; }

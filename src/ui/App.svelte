@@ -90,6 +90,9 @@
       isFactionPanelOpen = true;
     };
 
+    // Client'tan F3 toggle ile kapatılabilmesi için global köprü
+    window.closeFactionUI = closeFactionUI;
+
     // Komut listesini kaydet
     window.updateCommandList = (commands: any[]) => {
       commandList = commands;

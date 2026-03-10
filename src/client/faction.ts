@@ -1,15 +1,23 @@
 /**
  * SantosRP - Faction Client Controller
- * F3 ile panel açma, sunucu-istemci UI köprüsü
+ * F3 ile panel açma/kapama (toggle), sunucu-istemci UI köprüsü
  */
 import { getGameBrowser } from './auth';
+
+let isFactionPanelOpen = false;
 
 function isUIOpen(): boolean {
   return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
 }
 
-// ─── F3 (114): Birlik Paneli Aç ───────────────────────────────────────────────
+// ─── F3 (114): Birlik Paneli Toggle ───────────────────────────────────────────
 mp.keys.bind(114, true, () => {
+  if (isFactionPanelOpen) {
+    // Panel açıksa kapat
+    const browser = getGameBrowser();
+    if (browser) browser.execute('window.closeFactionUI && window.closeFactionUI();');
+    return;
+  }
   if (isUIOpen()) return;
   mp.events.callRemote('server:requestFactionData');
 });
@@ -19,6 +27,7 @@ mp.events.add('client:showFactionUI', (factionDataJson: string) => {
   const browser = getGameBrowser();
   if (!browser) return;
 
+  isFactionPanelOpen = true;
   mp.gui.cursor.show(true, true);
 
   // JSON string'i tek tırnak içine güvenle yerleştirmek için kaçış uygula
@@ -37,17 +46,15 @@ mp.events.add('client:showFactionUI', (factionDataJson: string) => {
 
 // ─── client:closeFactionUI — Svelte'den gelen kapatma isteğini işle ──────────
 mp.events.add('client:closeFactionUI', () => {
+  isFactionPanelOpen = false;
   mp.gui.cursor.show(false, false);
 });
 
 // ─── client:factionInviteClick — Svelte 'Üye Al' butonundan gelen istek ──────
 mp.events.add('client:factionInviteClick', () => {
-  // Oyuncunun yakınındaki (veya isim girerek) hedef oyuncuyu seçme arayüzüne açılabilir.
-  // Şimdilik sunucuya iletiyoruz; gerçek davet akışı buraya eklenir.
   mp.events.callRemote('server:factionInviteRequest');
 });
 
 export function initFaction(): void {
-  // Key bindings ve event listeners yukarıda modül yüklendiğinde kayıt edildi.
   console.log('[CLIENT] Faction sistemi başlatıldı.');
 }

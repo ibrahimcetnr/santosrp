@@ -505,16 +505,23 @@ mp.events.add("render", () => {
 });
 
 // src/client/faction.ts
+var isFactionPanelOpen = false;
 function isUIOpen() {
   return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
 }
 mp.keys.bind(114, true, () => {
+  if (isFactionPanelOpen) {
+    const browser = getGameBrowser();
+    if (browser) browser.execute("window.closeFactionUI && window.closeFactionUI();");
+    return;
+  }
   if (isUIOpen()) return;
   mp.events.callRemote("server:requestFactionData");
 });
 mp.events.add("client:showFactionUI", (factionDataJson) => {
   const browser = getGameBrowser();
   if (!browser) return;
+  isFactionPanelOpen = true;
   mp.gui.cursor.show(true, true);
   const escaped = factionDataJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   browser.execute(`window.openFactionUI && window.openFactionUI('${escaped}')`);
@@ -527,6 +534,7 @@ mp.events.add("client:showFactionUI", (factionDataJson) => {
   `);
 });
 mp.events.add("client:closeFactionUI", () => {
+  isFactionPanelOpen = false;
   mp.gui.cursor.show(false, false);
 });
 mp.events.add("client:factionInviteClick", () => {
