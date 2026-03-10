@@ -9,6 +9,7 @@ const POLL_INTERVAL_MS      = 250; // Saniyede 4 kez kontrol
 const DRIVER_SEAT           = -1;  // Şoför koltuğu
 
 let lastBodyHealth = 1000;
+let lastVehicle: VehicleMp | null = null;
 let damageTimer: ReturnType<typeof setInterval> | null = null;
 let isMonitorInitialized = false;
 
@@ -18,6 +19,13 @@ function checkVehicleDamage(): void {
 
     // Sadece oyuncu araçtaysa ve ŞOFÖRSE çalışır (Mükemmel Optimizasyon)
     if (vehicle && vehicle.getPedInSeat(DRIVER_SEAT) === player.handle) {
+        // Ghost crash koruması: yeni araca ilk binişte hasar bazını sıfırla
+        if (lastVehicle !== vehicle) {
+            lastVehicle = vehicle;
+            lastBodyHealth = vehicle.getBodyHealth();
+            return;
+        }
+
         const currentHealth = vehicle.getBodyHealth();
 
         // Çarpışma Tespiti
@@ -68,7 +76,7 @@ function checkVehicleDamage(): void {
                 }
 
                 // Hasar verisini topla ve sunucuya gönder
-                mp.events.call('client:extractVehicleDamage', vehicle);
+                extractVehicleDamage(vehicle);
             }, 150);
         }
 
@@ -77,6 +85,7 @@ function checkVehicleDamage(): void {
     } else {
         // Araçtan inince veya yolcuyken canı sıfırla
         lastBodyHealth = 1000;
+        lastVehicle = null;
     }
 }
 
@@ -90,9 +99,9 @@ export function initVehicleDamageMonitor(): void {
     console.log('[CLIENT] Dinamik Araç Hasar Monitorü Başlatıldı (Interval Modu).');
 }
 
-// --- src/client/vehicleDamage.ts DOSYASININ EN ALTINA EKLE ---
+// --- Hasar Veri Toplama Fonksiyonu ---
 
-mp.events.add('client:extractVehicleDamage', (vehicle: VehicleMp) => {
+function extractVehicleDamage(vehicle: VehicleMp): void {
     if (!vehicle || !mp.vehicles.exists(vehicle)) return;
 
     let damageData = {
@@ -154,4 +163,4 @@ mp.events.add('client:extractVehicleDamage', (vehicle: VehicleMp) => {
 
     // Hasar paketini kargola ve Server'a yolla!
     mp.events.callRemote('server:receiveVehicleDamage', vehicle, JSON.stringify(damageData));
-});
+}

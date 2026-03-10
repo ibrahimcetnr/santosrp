@@ -821,14 +821,18 @@ mp.events.add("entityStreamIn", (entity) => {
     const eStatus = entity.getVariable("engine");
     if (eStatus !== void 0) {
       setTimeout((_) => {
-        entity.setEngineOn(eStatus, true, true);
+        if (entity && mp.vehicles.exists(entity)) {
+          entity.setEngineOn(eStatus, true, true);
+        }
       }, 100);
     }
   }
 });
 mp.events.addDataHandler("engine", (entity, eStatus) => {
   setTimeout((_) => {
-    entity.setEngineOn(eStatus, true, true);
+    if (entity && mp.vehicles.exists(entity)) {
+      entity.setEngineOn(eStatus, true, true);
+    }
   }, 100);
 });
 mp.events.add("render", () => {
@@ -842,24 +846,21 @@ mp.events.add("render", () => {
     mp.game.controls.disableControlAction(0, 199, true);
     mp.game.controls.disableControlAction(0, 200, true);
   }
-  player.setStealthMovement(false, "0");
+  mp.game.controls.disableControlAction(0, 36, true);
   if (player.vehicle) {
-    const hasSeatbelt = !!player.getVariable("seatbelt");
-    player.setConfigFlag(32, !hasSeatbelt);
     mp.game.controls.disableControlAction(0, 19, true);
     mp.game.controls.disableControlAction(0, 20, true);
     mp.game.controls.disableControlAction(0, 134, true);
     if (cruiseActive) {
       if (!player.vehicle.engine) {
         cruiseActive = false;
-      } else if (mp.game.controls.isControlPressed(0, 72)) {
+      } else if (mp.game.controls.isControlPressed(0, 72) || mp.game.controls.isControlPressed(0, 76)) {
         cruiseActive = false;
         mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Fren alg\u0131land\u0131 \u2014 devre d\u0131\u015F\u0131.");
       } else {
         try {
           mp.game.controls.disableControlAction(0, 71, true);
-          const vel = player.vehicle.velocity;
-          const cur = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2);
+          const cur = player.vehicle.getSpeed();
           const diff = cruiseTargetSpeed - cur;
           if (diff > 0.3) {
             mp.game.controls.setControlNormal(0, 71, Math.min(diff * 0.6, 1));
@@ -870,6 +871,11 @@ mp.events.add("render", () => {
     }
   }
 });
+mp.events.addDataHandler("seatbelt", (entity, value) => {
+  if (entity.type === "player" && entity === mp.players.local) {
+    mp.players.local.setConfigFlag(32, !value);
+  }
+});
 mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
   const player = mp.players.local;
   player.setConfigFlag(429, true);
@@ -878,7 +884,6 @@ mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
   mp.game.audio.setUserRadioControlEnabled(false);
 });
 mp.events.add("playerExitVehicle", (vehicle, _seat) => {
-  parkingBrakeOn = false;
   if (cruiseActive) {
     cruiseActive = false;
     mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Ara\xE7tan \xE7\u0131k\u0131ld\u0131 \u2014 devre d\u0131\u015F\u0131.");
@@ -1006,28 +1011,14 @@ var cruiseActive = false;
 var cruiseTargetSpeed = 0;
 setInterval(() => {
   const _p = mp.players.local;
-  if (_p.vehicle && _p.vehicle.handle) {
+  if (_p.vehicle && mp.vehicles.exists(_p.vehicle) && _p.vehicle.handle !== 0) {
     try {
       mp.game.invoke("0x684785568EF26A22", _p.vehicle.handle, parkingBrakeOn);
     } catch {
     }
   }
 }, 500);
-setInterval(() => {
-  mp.vehicles.streamed.forEach((veh) => {
-    if (!veh || !veh.handle) return;
-    const indHazard = !!veh.getVariable("indHazard");
-    if (indHazard) {
-      veh.setIndicatorLights(1, true);
-      veh.setIndicatorLights(0, true);
-    } else {
-      veh.setIndicatorLights(1, !!veh.getVariable("indLeft"));
-      veh.setIndicatorLights(0, !!veh.getVariable("indRight"));
-    }
-  });
-}, 150);
 mp.events.add("playerExitVehicle", (_vehicle, _seat) => {
-  parkingBrakeOn = false;
   if (cruiseActive) {
     cruiseActive = false;
     mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Ara\xE7tan \xE7\u0131k\u0131ld\u0131 \u2014 devre d\u0131\u015F\u0131.");
@@ -1042,6 +1033,7 @@ mp.keys.bind(190, true, () => {
   if (isUIOpen()) return;
   const veh = mp.players.local.vehicle;
   if (!veh || !veh.engine) return;
+  if (veh.getPedInSeat(-1) !== mp.players.local.handle) return;
   if (!cruiseActive) {
     const vel = veh.velocity;
     const spd = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2);
@@ -1070,21 +1062,24 @@ mp.keys.bind(80, true, () => {
   mp.events.callRemote("vehicle:indicator", "hazard");
 });
 var vehicleLightStates = /* @__PURE__ */ new Map();
+mp.events.add("entityStreamOut", (entity) => {
+  if (entity.type === "vehicle") vehicleLightStates.delete(entity.remoteId);
+});
 mp.keys.bind(72, true, () => {
   if (isUIOpen() || !mp.players.local.vehicle) return;
   const veh = mp.players.local.vehicle;
-  let state = vehicleLightStates.get(veh.handle) || 0;
+  let state = vehicleLightStates.get(veh.remoteId) || 0;
   state = (state + 1) % 3;
-  vehicleLightStates.set(veh.handle, state);
+  vehicleLightStates.set(veh.remoteId, state);
   mp.game.invoke("0x1FD09E7390A74D54", veh.handle, state);
   const labels = ["KAPALI", "PARK (GER\xC7EK)", "KISA"];
   mp.events.call("chat:push", `!{#94a3b8}[FAR] ${labels[state]}`);
 });
 mp.events.add("playerLeaveVehicle", (vehicle) => {
   if (vehicle && vehicle.handle !== 0) {
-    const lastState = vehicleLightStates.get(vehicle.handle) || 0;
+    const lastState = vehicleLightStates.get(vehicle.remoteId) || 0;
     setTimeout(() => {
-      if (vehicle && vehicle.handle !== 0) {
+      if (vehicle && mp.vehicles.exists(vehicle) && vehicle.handle !== 0) {
         mp.game.invoke("0x1FD09E7390A74D54", vehicle.handle, lastState);
       }
     }, 500);

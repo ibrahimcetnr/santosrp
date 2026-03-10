@@ -9,6 +9,8 @@ function initVehicleDamageEvents() {
     // Client tarafı kendi setInterval'i ile hasarı takip ediyor;
     // server 'vehicleDamage' eventi artık kullanılmıyor.
     mp.events.add('server:receiveVehicleDamage', (player, vehicle, damageJson) => {
+        if (typeof damageJson !== 'string' || damageJson.length > 2500)
+            return;
         try {
             const data = JSON.parse(damageJson);
             console.log(`[VEHICLE_DAMAGE] player=${player.name} vehicle=#${vehicle.getVariable('dbId') ?? vehicle.id}`, JSON.stringify(data));

@@ -10,6 +10,7 @@ export function initVehicleDamageEvents(): void {
     mp.events.add(
         'server:receiveVehicleDamage',
         (player: PlayerMp, vehicle: VehicleMp, damageJson: string) => {
+            if (typeof damageJson !== 'string' || damageJson.length > 2500) return;
             try {
                 const data = JSON.parse(damageJson);
                 console.log(
