@@ -4,6 +4,7 @@
   import CharacterCreator from './src/components/CharacterCreator.svelte';
   import HUD from './src/components/HUD/HUD.svelte';
   import FactionPanel from './src/components/FactionPanel.svelte';
+  import OfferModal from './src/components/OfferModal.svelte';
 
   let username = $state('');
   let password = $state('');
@@ -213,6 +214,7 @@
   <CharacterCreator characterId={pendingCharacterId} gender={pendingGender} charData={pendingCharData} onCancel={onCancelCreator} />
 {:else if view === 'playing'}
   <HUD {myAdminLevel} commands={commandList} />
+  <OfferModal />
   {#if isFactionPanelOpen && currentFactionData}
     <FactionPanel factionData={currentFactionData} onClose={closeFactionUI} onInviteMember={inviteMemberUI} />
   {/if}

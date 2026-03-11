@@ -48,11 +48,64 @@ mp.events.add('client:showFactionUI', (factionDataJson: string) => {
 mp.events.add('client:closeFactionUI', () => {
   isFactionPanelOpen = false;
   mp.gui.cursor.show(false, false);
+  // Aynı şekilde sunucu tarafından zorla kapatılınca da çalışır
+  const browser = getGameBrowser();
+  if (browser) browser.execute('window.closeFactionUI && window.closeFactionUI();');
 });
 
 // ─── client:factionInviteClick — Svelte 'Üye Al' butonundan gelen istek ──────
 mp.events.add('client:factionInviteClick', () => {
   mp.events.callRemote('server:factionInviteRequest');
+});
+
+// ─── İstemci → Sunucu köprüleri (Birlik panel action event'leri) ──────────────
+mp.events.add('client:faction:inviteMember', (factionId: number, targetCharId: number) => {
+  mp.events.callRemote('server:faction:inviteMember', factionId, targetCharId);
+});
+
+mp.events.add('client:faction:kickMember', (factionId: number, targetCharId: number) => {
+  mp.events.callRemote('server:faction:kickMember', factionId, targetCharId);
+});
+
+mp.events.add('client:faction:editMemberRank', (factionId: number, targetCharId: number, newRank: number) => {
+  mp.events.callRemote('server:faction:editMemberRank', factionId, targetCharId, newRank);
+});
+
+mp.events.add('client:faction:editMemberDivision', (factionId: number, targetCharId: number, newDivision: number) => {
+  mp.events.callRemote('server:faction:editMemberDivision', factionId, targetCharId, newDivision);
+});
+
+mp.events.add('client:faction:updateRankCount', (factionId: number, ranksJson: string) => {
+  mp.events.callRemote('server:faction:updateRankCount', factionId, ranksJson);
+});
+
+mp.events.add('client:faction:updateDivisionCount', (factionId: number, divisionsJson: string) => {
+  mp.events.callRemote('server:faction:updateDivisionCount', factionId, divisionsJson);
+});
+
+mp.events.add('client:faction:updateRankName', (factionId: number, rankId: number, newName: string) => {
+  mp.events.callRemote('server:faction:updateRankName', factionId, rankId, newName);
+});
+
+mp.events.add('client:faction:updateDivisionName', (factionId: number, divId: number, newName: string) => {
+  mp.events.callRemote('server:faction:updateDivisionName', factionId, divId, newName);
+});
+
+// ─── Teklif/Davet sistemi köprüsü ─────────────────────────────────────────────
+
+mp.events.add('client:receiveOffer', (offerJson: string) => {
+  const browser = getGameBrowser();
+  if (!browser) return;
+  const escaped = offerJson.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  browser.execute(`window.showOffer && window.showOffer('${escaped}')`);
+});
+
+mp.events.add('client:acceptOffer', (offerId: string) => {
+  mp.events.callRemote('server:faction:acceptOffer', offerId);
+});
+
+mp.events.add('client:rejectOffer', (offerId: string) => {
+  mp.events.callRemote('server:faction:rejectOffer', offerId);
 });
 
 export function initFaction(): void {

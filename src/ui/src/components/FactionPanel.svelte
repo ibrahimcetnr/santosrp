@@ -88,6 +88,24 @@
     return 'locked';
   }
 
+  function divisionName(divId: number | string | null | undefined): string {
+    if (divId == null || divId === 0 || divId === '') return '—';
+    const d = localDivisions.find((d: any) => d.id === Number(divId));
+    return d?.name ?? `Div. ${divId}`;
+  }
+
+  function rankName(rankId: number | null | undefined): string {
+    if (rankId == null || rankId === 0) return '—';
+    const r = localRanks.find((r: any) => r.id === Number(rankId));
+    return r?.name ?? `Rütbe ${rankId}`;
+  }
+
+  const GHOST_TASKS = [
+    { name: 'Yeni Ufuklar',     description: 'Gelecek görev planlanıyor...' },
+    { name: 'Bilinmeyen Hedef', description: 'Gizli direktif bekleniyor...' },
+    { name: 'İlerleme Yolu',    description: 'Koordinatlar henüz belirlenmedi...' },
+  ];
+
   const tabs = [
     { id: 'info',      label: 'Bilgiler',         icon: '◈' },
     { id: 'story',     label: 'Hikaye Ağacı',      icon: '◉' },
@@ -104,6 +122,135 @@
   function triggerMp(event: string, ...args: unknown[]) {
     if (typeof (window as any).mp !== 'undefined') {
       (window as any).mp.trigger(event, ...args);
+    }
+  }
+
+  // ── Sıralanmış üye listesi (rütbe 1 = en yüksek) ──────────────────
+  const sortedMembers = $derived(
+    [...(factionData.members || [])].sort((a: any, b: any) => (a.rank ?? 999) - (b.rank ?? 999))
+  );
+
+  // ── Yerel rütbe/divizyon listeleri (lokal düzenleme için) ────────────────
+  let localRanks     = $state<any[]>([...(factionData.ranks     || [])]);
+  let localDivisions = $state<any[]>([...(factionData.divisions || [])]);
+
+  // ── Inline isim düzenleme tracking ─────────────────────────────────────
+  let rankNameEdits = $state<Record<number, string>>({});
+  let divNameEdits  = $state<Record<number, string>>({});
+
+  $effect(() => {
+    // Prop değiştiğinde (panel yeniden açıldığında) senkronize et
+    localRanks     = [...(factionData.ranks     || [])];
+    localDivisions = [...(factionData.divisions || [])];
+  });
+
+  // ── Modal state ───────────────────────────────────────────────────────────
+  type ModalMode = 'invite' | 'rankCount' | 'divisionCount' | 'editRank' | 'editDivision' | 'kickConfirm' | null;
+  let modalMode     = $state<ModalMode>(null);
+  let modalValue    = $state('');
+  let modalError    = $state('');
+  let editingMember = $state<any>(null);
+
+  function openModal(mode: ModalMode, member: any = null) {
+    modalMode     = mode;
+    modalValue    = '';
+    modalError    = '';
+    editingMember = member;
+  }
+
+  function closeModal() {
+    modalMode     = null;
+    modalValue    = '';
+    modalError    = '';
+    editingMember = null;
+  }
+
+  // ── Rütbe sayısı uygula: 1–15, fazlaysa boş slot ekle / eksikse son sil ──
+  function applyRankCount(): boolean {
+    const num = parseInt(modalValue, 10);
+    if (isNaN(num))  { modalError = 'Geçerli bir sayı girin.';       return false; }
+    if (num < 1)     { modalError = 'En az 1 rütbe olmalıdır.';       return false; }
+    if (num > 15)    { modalError = 'En fazla 15 rütbe girilebilir.'; return false; }
+    if (num > localRanks.length) {
+      const added = [...localRanks];
+      for (let i = localRanks.length + 1; i <= num; i++) added.push({ id: i, name: '', salary: 0 });
+      localRanks = added;
+    } else if (num < localRanks.length) {
+      localRanks = localRanks.slice(0, num);
+    }
+    triggerMp('client:faction:updateRankCount', factionData.id, JSON.stringify(localRanks));
+    return true;
+  }
+
+  // ── Divizyon sayısı uygula: 1–10, fazlaysa boş slot ekle / eksikse son sil
+  function applyDivisionCount(): boolean {
+    const num = parseInt(modalValue, 10);
+    if (isNaN(num))  { modalError = 'Geçerli bir sayı girin.';          return false; }
+    if (num < 1)     { modalError = 'En az 1 divizyon olmalıdır.';      return false; }
+    if (num > 10)    { modalError = 'En fazla 10 divizyon girilebilir.'; return false; }
+    if (num > localDivisions.length) {
+      const added = [...localDivisions];
+      for (let i = localDivisions.length + 1; i <= num; i++) added.push({ id: i, name: '' });
+      localDivisions = added;
+    } else if (num < localDivisions.length) {
+      localDivisions = localDivisions.slice(0, num);
+    }
+    triggerMp('client:faction:updateDivisionCount', factionData.id, JSON.stringify(localDivisions));
+    return true;
+  }
+
+  function saveRankName(rankId: number, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const rank = localRanks.find((r: any) => r.id === rankId);
+    if (rank) rank.name = trimmed;
+    localRanks = [...localRanks];
+    const n = { ...rankNameEdits }; delete n[rankId]; rankNameEdits = n;
+    triggerMp('client:faction:updateRankName', factionData.id, rankId, trimmed);
+  }
+
+  function saveDivisionName(divId: number, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const div = localDivisions.find((d: any) => d.id === divId);
+    if (div) div.name = trimmed;
+    localDivisions = [...localDivisions];
+    const n = { ...divNameEdits }; delete n[divId]; divNameEdits = n;
+    triggerMp('client:faction:updateDivisionName', factionData.id, divId, trimmed);
+  }
+
+  function confirmModal() {
+    switch (modalMode) {
+      case 'invite': {
+        const num = parseInt(modalValue, 10);
+        if (isNaN(num) || num < 0) { modalError = 'Geçerli bir oyuncu ID girin.'; return; }
+        triggerMp('client:faction:inviteMember', factionData.id, num);
+        closeModal();
+        break;
+      }
+      case 'rankCount':
+        if (applyRankCount()) closeModal();
+        break;
+      case 'divisionCount':
+        if (applyDivisionCount()) closeModal();
+        break;
+      case 'editRank': {
+        if (!modalValue) { modalError = 'Bir rütbe seçin.'; return; }
+        triggerMp('client:faction:editMemberRank', factionData.id, editingMember.id, parseInt(modalValue, 10));
+        closeModal();
+        break;
+      }
+      case 'editDivision': {
+        if (!modalValue) { modalError = 'Bir divizyon seçin.'; return; }
+        triggerMp('client:faction:editMemberDivision', factionData.id, editingMember.id, parseInt(modalValue, 10));
+        closeModal();
+        break;
+      }
+      case 'kickConfirm': {
+        triggerMp('client:faction:kickMember', factionData.id, editingMember.id);
+        closeModal();
+        break;
+      }
     }
   }
 </script>
@@ -199,6 +346,16 @@
               </span>
             </div>
           {/if}
+          <div class="info-row">
+            <span class="info-label">Simsar Hakkı</span>
+            <span class="info-value">
+              {#if factionData.brokerFee}
+                ₺{Number(factionData.brokerFee).toLocaleString('tr-TR')}
+              {:else}
+                <span style="color:#64748b">Yok</span>
+              {/if}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -212,32 +369,67 @@
             <span>Henüz tanımlanmış bir görev yok.</span>
           </div>
         {:else}
-          <div class="task-tree">
-            {#each (factionData.tasks || []) as task, i}
-              {@const status = taskStatus(task)}
-              <div class="task-node {status}">
-                <!-- Bağlantı çizgisi (son eleman hariç) -->
-                {#if i < (factionData.tasks || []).length - 1}
-                  <div class="task-connector"></div>
-                {/if}
+          {@const tasksDone   = (factionData.tasks || []).filter((t: any) => taskStatus(t) === 'done')}
+          {@const tasksActive = (factionData.tasks || []).find((t: any)   => taskStatus(t) === 'active') ?? null}
+          {@const tasksLocked = (factionData.tasks || []).filter((t: any) => taskStatus(t) === 'locked')}
+          <div class="story-tree">
 
-                <div class="task-bubble">
-                  {#if status === 'done'}
-                    <span class="task-status-icon done">✓</span>
-                  {:else if status === 'active'}
-                    <span class="task-status-icon active">◉</span>
-                  {:else}
-                    <span class="task-status-icon locked">⊘</span>
-                  {/if}
+            <!-- AKTİF GÖREV — üstte hero kartı -->
+            {#if tasksActive}
+              <div class="story-active-card">
+                <div class="story-active-badge">◉ GÜNCEL GÖREV</div>
+                <div class="story-active-body">
+                  <div class="task-status-icon active">◉</div>
                   <div class="task-body">
-                    <span class="task-name">{task.name}</span>
-                    {#if task.description}
-                      <span class="task-desc">{task.description}</span>
+                    <span class="task-name story-active-name">{tasksActive.name}</span>
+                    {#if tasksActive.description}
+                      <span class="task-desc">{tasksActive.description}</span>
                     {/if}
                   </div>
                 </div>
               </div>
+              {#if tasksDone.length > 0 || tasksLocked.length > 0 || GHOST_TASKS.length > 0}
+                <div class="story-v-line"></div>
+              {/if}
+            {/if}
+
+            <!-- TAMAMLANMIŞ GÖREVLER -->
+            {#each tasksDone as task, i}
+              <div class="story-node done">
+                <div class="story-dot done">✓</div>
+                <div class="story-node-content">
+                  <span class="story-node-name done">{task.name}</span>
+                  {#if task.description}<span class="story-node-desc">{task.description}</span>{/if}
+                </div>
+              </div>
+              <div class="story-v-line done"></div>
             {/each}
+
+            <!-- KİLİTLİ GERÇEK GÖREVLER -->
+            {#each tasksLocked as task}
+              <div class="story-node locked">
+                <div class="story-dot locked">⊘</div>
+                <div class="story-node-content">
+                  <span class="story-node-name locked">{task.name}</span>
+                </div>
+              </div>
+              <div class="story-v-line ghost"></div>
+            {/each}
+
+            <!-- HAYALET / SAHTE GELECEK GÖREVLER -->
+            {#each GHOST_TASKS as ghost, i}
+              <div class="story-node ghost">
+                <div class="story-dot ghost">?</div>
+                <div class="story-node-content">
+                  <span class="story-node-name">{ghost.name}</span>
+                  <span class="story-node-desc">{ghost.description}</span>
+                </div>
+              </div>
+              {#if i < GHOST_TASKS.length - 1}
+                <div class="story-v-line ghost"></div>
+              {/if}
+            {/each}
+
           </div>
         {/if}
       </section>
@@ -250,13 +442,9 @@
             <span class="member-count">{(factionData.members || []).length}</span>
           </h2>
           <div class="btn-group">
-            <button class="btn btn-success btn-sm" onclick={() => onInviteMember && onInviteMember()}>
+            <button class="btn btn-success btn-sm" onclick={() => openModal('invite')}>
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
               Üye Al
-            </button>
-            <button class="btn btn-danger btn-sm">
-              <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 6h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-              Üye At
             </button>
           </div>
         </div>
@@ -282,25 +470,36 @@
               <span>Divizyon</span>
               <span></span>
             </div>
-            {#each (factionData.members || []) as member}
+            {#each sortedMembers as member}
               <div class="member-row">
                 <span class="member-name">{member.name}</span>
-                <span class="member-rank-tag">Rütbe {member.rank}</span>
-                <span class="member-div">{member.division ?? '—'}</span>
+                <span class="member-rank-tag">{rankName(member.rank)}</span>
+                <span class="member-div">{divisionName(member.division)}</span>
                 <div class="member-actions">
-                  <button class="icon-btn" title="Rütbe Düzenle" aria-label="Rütbe Düzenle">
+                  <button class="icon-btn has-tooltip" data-tooltip="Rütbe Düzenle" aria-label="Rütbe Düzenle"
+                    onclick={() => openModal('editRank', member)}>
                     <!-- yıldız ikonu -->
                     <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
                       <path d="M10 2l2.4 4.9 5.4.8-3.9 3.8.9 5.3L10 14.4l-4.8 2.5.9-5.3L2.2 7.7l5.4-.8z"
                         stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
                     </svg>
                   </button>
-                  <button class="icon-btn" title="Divizyon Düzenle" aria-label="Divizyon Düzenle">
+                  <button class="icon-btn has-tooltip" data-tooltip="Divizyon Düzenle" aria-label="Divizyon Düzenle"
+                    onclick={() => openModal('editDivision', member)}>
                     <!-- kişi grubu ikonu -->
                     <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
                       <circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/>
                       <path d="M1 17c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                       <path d="M14 4.5a3 3 0 1 1 0 5M19 17c0-3.3-2.3-5.5-5-5.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <button class="icon-btn icon-btn-danger has-tooltip" data-tooltip="Üye At" aria-label="Üye At"
+                    onclick={() => openModal('kickConfirm', member)}>
+                    <!-- çöp kutusu ikonu -->
+                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+                      <path d="M5 5l1 11h8l1-11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M3 5h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                      <path d="M8 5V3h4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                   </button>
                 </div>
@@ -315,21 +514,34 @@
       <section class="tab-section">
         <h2 class="tab-title">Rütbeler</h2>
         <div class="action-bar">
-          <button class="btn btn-primary" onclick={() => triggerMp('client:faction:updateCounts', factionData.id, 'ranks')}>
+          <button class="btn btn-primary" onclick={() => openModal('rankCount')}>
             ⊞ Rütbe Sayısı Belirle
           </button>
         </div>
 
         <div class="rank-list">
-          {#each (factionData.ranks || []) as rank}
+          {#each localRanks as rank}
             <div class="rank-row">
               <span class="rank-num">{rank.id}</span>
-              <input
-                class="rank-name-input"
-                type="text"
-                value={rank.name}
-                placeholder="Rütbe Adı"
-              />
+              <div class="inline-edit-wrap">
+                <input
+                  class="rank-name-input"
+                  type="text"
+                  value={rankNameEdits[rank.id] ?? rank.name}
+                  oninput={(e) => {
+                    const v = (e.currentTarget as HTMLInputElement).value;
+                    if (v !== rank.name) rankNameEdits = { ...rankNameEdits, [rank.id]: v };
+                    else { const n = { ...rankNameEdits }; delete n[rank.id]; rankNameEdits = n; }
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') { const val = rankNameEdits[rank.id]; if (val !== undefined) saveRankName(rank.id, val); }
+                  }}
+                  placeholder="Rütbe Adı"
+                />
+                {#if rankNameEdits[rank.id] !== undefined}
+                  <button class="inline-confirm-btn" onclick={() => saveRankName(rank.id, rankNameEdits[rank.id]!)}>✓</button>
+                {/if}
+              </div>
               <button class="btn btn-sm btn-outline">Yetkilendirme</button>
               {#if hasSalary}
                 <div class="salary-group">
@@ -354,21 +566,34 @@
       <section class="tab-section">
         <h2 class="tab-title">Divizyonlar</h2>
         <div class="action-bar">
-          <button class="btn btn-primary" onclick={() => triggerMp('client:faction:updateCounts', factionData.id, 'divisions')}>
+          <button class="btn btn-primary" onclick={() => openModal('divisionCount')}>
             ⊞ Divizyon Sayısı Belirle
           </button>
         </div>
 
         <div class="division-list">
-          {#each (factionData.divisions || []) as div}
+          {#each localDivisions as div}
             <div class="division-row">
               <span class="div-num">{div.id}</span>
-              <input
-                class="div-name-input"
-                type="text"
-                value={div.name}
-                placeholder="Divizyon Adı"
-              />
+              <div class="inline-edit-wrap">
+                <input
+                  class="div-name-input"
+                  type="text"
+                  value={divNameEdits[div.id] ?? div.name}
+                  oninput={(e) => {
+                    const v = (e.currentTarget as HTMLInputElement).value;
+                    if (v !== div.name) divNameEdits = { ...divNameEdits, [div.id]: v };
+                    else { const n = { ...divNameEdits }; delete n[div.id]; divNameEdits = n; }
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') { const val = divNameEdits[div.id]; if (val !== undefined) saveDivisionName(div.id, val); }
+                  }}
+                  placeholder="Divizyon Adı"
+                />
+                {#if divNameEdits[div.id] !== undefined}
+                  <button class="inline-confirm-btn" onclick={() => saveDivisionName(div.id, divNameEdits[div.id]!)}>✓</button>
+                {/if}
+              </div>
             </div>
           {/each}
         </div>
@@ -403,6 +628,113 @@
     {/if}
 
   </main>
+
+  <!-- ── Modal Overlay ───────────────────── -->
+  {#if modalMode !== null}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-backdrop" onclick={closeModal}></div>
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <span class="modal-title">
+          {#if modalMode === 'invite'}Üye Al
+          {:else if modalMode === 'rankCount'}Rütbe Sayısı Belirle
+          {:else if modalMode === 'divisionCount'}Divizyon Sayısı Belirle
+          {:else if modalMode === 'editRank'}Rütbe Düzenle
+          {:else if modalMode === 'editDivision'}Divizyon Düzenle
+          {:else if modalMode === 'kickConfirm'}Üye At
+          {/if}
+        </span>
+        <button class="modal-close" onclick={closeModal} aria-label="Kapat">
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+            <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        {#if modalMode === 'invite'}
+          <label class="modal-label" for="modal-input">Oyuncu ID Girin (F1 menüsündeki ağ ID'si)</label>
+          <input id="modal-input" class="modal-input" class:modal-input-error={modalError !== ''}
+            type="number" placeholder="0" bind:value={modalValue}
+            onkeydown={(e) => { if (e.key === 'Enter') confirmModal(); if (e.key === 'Escape') closeModal(); }}
+          />
+
+        {:else if modalMode === 'rankCount'}
+          <label class="modal-label" for="modal-input">
+            Yeni Rütbe Sayısı
+            <span class="modal-hint">(1–15, şu an: {localRanks.length})</span>
+          </label>
+          <input id="modal-input" class="modal-input" class:modal-input-error={modalError !== ''}
+            type="number" min="1" max="15" placeholder="{localRanks.length}" bind:value={modalValue}
+            onkeydown={(e) => { if (e.key === 'Enter') confirmModal(); if (e.key === 'Escape') closeModal(); }}
+          />
+
+        {:else if modalMode === 'divisionCount'}
+          <label class="modal-label" for="modal-input">
+            Yeni Divizyon Sayısı
+            <span class="modal-hint">(1–10, şu an: {localDivisions.length})</span>
+          </label>
+          <input id="modal-input" class="modal-input" class:modal-input-error={modalError !== ''}
+            type="number" min="1" max="10" placeholder="{localDivisions.length}" bind:value={modalValue}
+            onkeydown={(e) => { if (e.key === 'Enter') confirmModal(); if (e.key === 'Escape') closeModal(); }}
+          />
+
+        {:else if modalMode === 'editRank'}
+          <p class="modal-desc">{editingMember?.name} için yeni rütbeyi seçin:</p>
+          <div class="modal-pick-list">
+            {#each localRanks as rank}
+              <button
+                class="modal-pick-item"
+                class:selected={modalValue === String(rank.id)}
+                onclick={() => modalValue = String(rank.id)}
+              >
+                <span class="pick-num">{rank.id}</span>
+                <span class="pick-name">{rank.name || `Rütbe ${rank.id}`}</span>
+              </button>
+            {/each}
+          </div>
+
+        {:else if modalMode === 'editDivision'}
+          <p class="modal-desc">{editingMember?.name} için yeni divizyonu seçin:</p>
+          <div class="modal-pick-list">
+            {#each localDivisions as div}
+              <button
+                class="modal-pick-item"
+                class:selected={modalValue === String(div.id)}
+                onclick={() => modalValue = String(div.id)}
+              >
+                <span class="pick-num">{div.id}</span>
+                <span class="pick-name">{div.name || `Divizyon ${div.id}`}</span>
+              </button>
+            {/each}
+          </div>
+
+        {:else if modalMode === 'kickConfirm'}
+          <div class="kick-warn">
+            <span class="kick-icon">⚠</span>
+            <p class="modal-desc">
+              <strong>{editingMember?.name}</strong> adlı üyeyi birlikten atmak istediğinizden emin misiniz?
+            </p>
+          </div>
+          <p class="modal-sub">Bu işlem geri alınamaz.</p>
+        {/if}
+
+        {#if modalError}
+          <span class="modal-error">{modalError}</span>
+        {/if}
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline btn-sm" onclick={closeModal}>Vazgeç</button>
+        {#if modalMode === 'kickConfirm'}
+          <button class="btn btn-danger btn-sm" onclick={confirmModal}>Evet, At</button>
+        {:else}
+          <button class="btn btn-primary btn-sm" onclick={confirmModal}>Onayla</button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
 </div>
 
 <style>
@@ -528,6 +860,8 @@
     padding: 10px 8px;
     gap: 2px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   }
 
   .nav-btn {
@@ -578,12 +912,32 @@
     overflow-y: auto;
     padding: 28px 30px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   }
 
-  .content::-webkit-scrollbar { width: 4px; }
-  .content::-webkit-scrollbar-track { background: transparent; }
-  .content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 4px; }
+  .content::-webkit-scrollbar,
+  .sidebar-nav::-webkit-scrollbar,
+  .modal-pick-list::-webkit-scrollbar { width: 5px; }
+
+  .content::-webkit-scrollbar-track,
+  .sidebar-nav::-webkit-scrollbar-track,
+  .modal-pick-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 10px;
+  }
+
+  .content::-webkit-scrollbar-thumb,
+  .sidebar-nav::-webkit-scrollbar-thumb,
+  .modal-pick-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+  }
+
+  .content::-webkit-scrollbar-thumb:hover,
+  .sidebar-nav::-webkit-scrollbar-thumb:hover,
+  .modal-pick-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
 
   .tab-section {
     display: flex;
@@ -759,6 +1113,7 @@
     justify-content: space-between;
     gap: 12px;
     padding-bottom: 12px;
+    padding-right: 42px; /* close-corner button çakışmasını önler */
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 
@@ -988,7 +1343,39 @@
     transition: border-color 0.15s, box-shadow 0.15s;
   }
 
-  .rank-name-input { flex: 1; }
+  .inline-edit-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+
+  .inline-confirm-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  .inline-confirm-btn:hover {
+    background: rgba(52, 211, 153, 0.28);
+    border-color: rgba(52, 211, 153, 0.5);
+  }
+
+  .rank-name-input { flex: 1; padding-right: 36px; }
 
   .rank-name-input:focus,
   .salary-input:focus,
@@ -1047,7 +1434,7 @@
     color: var(--accent);
   }
 
-  .div-name-input { flex: 1; }
+  .div-name-input { flex: 1; padding-right: 36px; }
 
   /* ── Skeleton Loader ──────────────────────────────────────────── */
   .skeleton-wrap {
@@ -1091,70 +1478,134 @@
     letter-spacing: 0.02em;
   }
 
-  /* ── Task Tree ─────────────────────────────────────────── */
-  .task-tree {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    padding: 4px 0;
-  }
-
-  .task-node {
-    position: relative;
+  /* ── Story Tree ─────────────────────────────────────────── */
+  .story-tree {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    padding: 4px 0 16px;
   }
 
-  /* Dikey bağlantı çizgisi */
-  .task-connector {
-    position: absolute;
-    left: 19px;
-    top: 44px;
-    width: 2px;
-    height: calc(100% - 10px);
-    background: rgba(255, 255, 255, 0.06);
-    z-index: 0;
+  /* Aktif görev — üstte büyük hero kartı */
+  .story-active-card {
+    width: 100%;
+    padding: 14px 18px;
+    background: rgba(194, 160, 82, 0.08);
+    border: 1px solid rgba(194, 160, 82, 0.35);
+    border-radius: 14px;
+    box-shadow: 0 0 22px rgba(194, 160, 82, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
-  .task-node.done .task-connector  { background: rgba(52, 211, 153, 0.3); }
-  .task-node.active .task-connector { background: rgba(194, 160, 82, 0.3); }
+  .story-active-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #c2a052;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
 
-  .task-bubble {
-    position: relative;
-    z-index: 1;
+  .story-active-body {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin: 5px 0;
-    padding: 11px 16px;
-    border-radius: 12px;
+  }
+
+  .story-active-name {
+    color: #c2a052 !important;
+    font-size: 14px !important;
+  }
+
+  /* Dikey bağlantı çizgisi */
+  .story-v-line {
+    width: 2px;
+    height: 22px;
+    background: rgba(255, 255, 255, 0.07);
+    margin-left: 13px;
+    flex-shrink: 0;
+  }
+
+  .story-v-line.done {
+    background: rgba(52, 211, 153, 0.25);
+  }
+
+  .story-v-line.ghost {
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.06), transparent);
+  }
+
+  /* Bireysel hikaye düğümleri */
+  .story-node {
+    display: flex;
+    align-items: center;
+    gap: 14px;
     width: 100%;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    transition: background 0.15s;
+    padding: 8px 8px 8px 0;
   }
 
-  /* Tamamlanmış */
-  .task-node.done .task-bubble {
-    background: rgba(52, 211, 153, 0.06);
-    border-color: rgba(52, 211, 153, 0.15);
-  }
-
-  /* Aktif — altın glow */
-  .task-node.active .task-bubble {
-    background: rgba(194, 160, 82, 0.08);
-    border-color: rgba(194, 160, 82, 0.35);
-    box-shadow: 0 0 16px rgba(194, 160, 82, 0.1);
-  }
-
-  /* Kilitli — blur + şeffaf */
-  .task-node.locked .task-bubble {
-    opacity: 0.45;
-    filter: blur(0.5px);
+  .story-node.ghost {
+    filter: blur(3.5px);
+    opacity: 0.38;
     pointer-events: none;
+    user-select: none;
   }
 
+  /* Nokta göstergesi */
+  .story-dot {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .story-dot.done {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+  }
+
+  .story-dot.locked {
+    background: rgba(255, 255, 255, 0.04);
+    color: #475569;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .story-dot.ghost {
+    background: rgba(255, 255, 255, 0.03);
+    color: #334155;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 14px;
+  }
+
+  .story-node-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .story-node-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .story-node-name.done   { color: #34d399; }
+  .story-node-name.locked { color: #475569; }
+
+  .story-node-desc {
+    font-size: 11px;
+    color: #475569;
+  }
+
+  /* ── Shared task body / icon (used in active card) ──────── */
   .task-status-icon {
     width: 28px;
     height: 28px;
@@ -1167,24 +1618,12 @@
     font-weight: 700;
   }
 
-  .task-status-icon.done {
-    background: rgba(52, 211, 153, 0.15);
-    color: #34d399;
-    border: 1px solid rgba(52, 211, 153, 0.3);
-  }
-
   .task-status-icon.active {
     background: rgba(194, 160, 82, 0.18);
     color: #c2a052;
     border: 1px solid rgba(194, 160, 82, 0.45);
     box-shadow: 0 0 8px rgba(194, 160, 82, 0.3);
     animation: pulse-gold 2s ease-in-out infinite;
-  }
-
-  .task-status-icon.locked {
-    background: rgba(255, 255, 255, 0.04);
-    color: #475569;
-    border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   @keyframes pulse-gold {
@@ -1204,12 +1643,246 @@
     color: #f1f5f9;
   }
 
-  .task-node.done .task-name  { color: #34d399; }
-  .task-node.active .task-name { color: #c2a052; }
-  .task-node.locked .task-name { color: #475569; }
-
   .task-desc {
     font-size: 11px;
     color: #64748b;
+  }
+
+  /* ── Icon Button Danger (Üye At) ──────────────────────────── */
+  .icon-btn-danger:hover {
+    background: rgba(248, 113, 113, 0.12);
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.3);
+  }
+
+  /* ── Modal ─────────────────────────────────────────────────── */
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    border-radius: 18px;
+  }
+
+  .modal-box {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 21;
+    width: 320px;
+    background: rgba(22, 22, 28, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .modal-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: -0.01em;
+  }
+
+  .modal-close {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #64748b;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .modal-close:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+
+  .modal-body {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .modal-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+
+  .modal-input {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #f1f5f9;
+    font-size: 14px;
+    padding: 9px 12px;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .modal-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .modal-input-error {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+  }
+
+  .modal-error {
+    font-size: 11px;
+    color: #ef4444;
+    margin-top: -2px;
+  }
+
+  .modal-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 12px 20px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* ── Modal extras ──────────────────────────────────── */
+  .modal-hint {
+    font-size: 10px;
+    color: #475569;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: 4px;
+  }
+
+  .modal-desc {
+    font-size: 13px;
+    color: #cbd5e1;
+    margin: 0 0 8px;
+    line-height: 1.5;
+  }
+
+  .modal-sub {
+    font-size: 11px;
+    color: #475569;
+    margin: 6px 0 0;
+  }
+
+  .modal-pick-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 210px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+
+  .modal-pick-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+
+  .modal-pick-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #cbd5e1;
+  }
+
+  .modal-pick-item.selected {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .pick-num {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .pick-name {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .kick-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(248, 113, 113, 0.07);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    border-radius: 8px;
+  }
+
+  .kick-icon {
+    font-size: 16px;
+    color: #f87171;
+    line-height: 1.5;
+    flex-shrink: 0;
+  }
+
+  /* ── Custom Tooltip ────────────────────────────────────────────────────── */
+  .has-tooltip {
+    position: relative;
+  }
+
+  .has-tooltip::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 14, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 30;
+  }
+
+  .has-tooltip:hover::before {
+    opacity: 1;
   }
 </style>

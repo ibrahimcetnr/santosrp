@@ -536,9 +536,47 @@ mp.events.add("client:showFactionUI", (factionDataJson) => {
 mp.events.add("client:closeFactionUI", () => {
   isFactionPanelOpen = false;
   mp.gui.cursor.show(false, false);
+  const browser = getGameBrowser();
+  if (browser) browser.execute("window.closeFactionUI && window.closeFactionUI();");
 });
 mp.events.add("client:factionInviteClick", () => {
   mp.events.callRemote("server:factionInviteRequest");
+});
+mp.events.add("client:faction:inviteMember", (factionId, targetCharId) => {
+  mp.events.callRemote("server:faction:inviteMember", factionId, targetCharId);
+});
+mp.events.add("client:faction:kickMember", (factionId, targetCharId) => {
+  mp.events.callRemote("server:faction:kickMember", factionId, targetCharId);
+});
+mp.events.add("client:faction:editMemberRank", (factionId, targetCharId, newRank) => {
+  mp.events.callRemote("server:faction:editMemberRank", factionId, targetCharId, newRank);
+});
+mp.events.add("client:faction:editMemberDivision", (factionId, targetCharId, newDivision) => {
+  mp.events.callRemote("server:faction:editMemberDivision", factionId, targetCharId, newDivision);
+});
+mp.events.add("client:faction:updateRankCount", (factionId, ranksJson) => {
+  mp.events.callRemote("server:faction:updateRankCount", factionId, ranksJson);
+});
+mp.events.add("client:faction:updateDivisionCount", (factionId, divisionsJson) => {
+  mp.events.callRemote("server:faction:updateDivisionCount", factionId, divisionsJson);
+});
+mp.events.add("client:faction:updateRankName", (factionId, rankId, newName) => {
+  mp.events.callRemote("server:faction:updateRankName", factionId, rankId, newName);
+});
+mp.events.add("client:faction:updateDivisionName", (factionId, divId, newName) => {
+  mp.events.callRemote("server:faction:updateDivisionName", factionId, divId, newName);
+});
+mp.events.add("client:receiveOffer", (offerJson) => {
+  const browser = getGameBrowser();
+  if (!browser) return;
+  const escaped = offerJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  browser.execute(`window.showOffer && window.showOffer('${escaped}')`);
+});
+mp.events.add("client:acceptOffer", (offerId) => {
+  mp.events.callRemote("server:faction:acceptOffer", offerId);
+});
+mp.events.add("client:rejectOffer", (offerId) => {
+  mp.events.callRemote("server:faction:rejectOffer", offerId);
 });
 function initFaction() {
   console.log("[CLIENT] Faction sistemi ba\u015Flat\u0131ld\u0131.");

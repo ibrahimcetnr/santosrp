@@ -36,6 +36,9 @@ export interface ICharacter {
   charData: string | null; // appearance JSON
   createdAt: Date;
   updatedAt: Date;
+  factionId: number | null;
+  factionRank: number | null;
+  factionDivision: number | null;
 }
 
 export interface IVehicle {
@@ -45,6 +48,7 @@ export interface IVehicle {
   characterId: number;
   color1: number;
   color2: number;
+  factionId: number | null;
 }
 
 export enum NotificationType {
@@ -85,6 +89,7 @@ declare global {
     characterName?: string;   // "Ad Soyad" formatı — HUD watermark ve chat için
     factionType?: number;
     factionRank?: number;
+    factionId?: number;
     vipLevel?: number;
     helperLevel?: number;
     zone?: string;
@@ -161,11 +166,11 @@ export interface IFaction {
 }
 
 // Bir birliğin ana kategorisini bulmamızı sağlayacak yardımcı fonksiyon
-export function getFactionCategory(type: FactionType): 'BUSINESS' | 'ILLEGAL' | 'LEGAL' {
-    if (type >= 10 && type <= 19) return 'BUSINESS';
+export function getFactionCategory(type: FactionType): 'ŞİRKET' | 'ILLEGAL' | 'DEVLET KURUMU' {
+    if (type >= 10 && type <= 19) return 'ŞİRKET';
     if (type >= 20 && type <= 39) return 'ILLEGAL';
-    if (type >= 40 && type <= 59) return 'LEGAL';
-    return 'BUSINESS'; // Fallback
+    if (type >= 40 && type <= 59) return 'DEVLET KURUMU';
+    return 'DEVLET KURUMU'; // Fallback (bilinmeyen türler resmi kurum sayılır)
 }
 
 // (Daha önce eklediğimiz FactionType enum'u burada duruyor)

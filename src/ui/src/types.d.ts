@@ -94,6 +94,9 @@ declare global {
     // Faction Panel
     openFactionUI?: (dataJson: string) => void;
     closeFactionUI?: () => void;
+
+    // Offer / Proposal system
+    showOffer?: (jsonStr: string) => void;
     
     // Command System
     updateCommandList?: (commands: CommandData[]) => void;
