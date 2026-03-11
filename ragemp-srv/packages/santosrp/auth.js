@@ -49,10 +49,16 @@ const bcrypt_pool_1 = require("./bcrypt-pool");
 const db_1 = require("./db");
 const cache_1 = require("./cache");
 const safeEvent_1 = require("./utils/safeEvent");
+const FactionManager_1 = require("./FactionManager");
+const playerRegistry_1 = require("./playerRegistry");
 const appearance_1 = require("./utils/appearance");
 const payday_1 = require("./payday");
 require("../shared/types"); // PlayerMp augmentation (global declare)
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
+// TODO: 1000 CCU Restart senaryosunda Bcrypt Worker Pool darboğazını önlemek için
+// Login Queue (Giriş Sırası) mekanizması entegre edilmelidir.
+// Sunucu yeniden başladığında tüm oyuncular eş zamanlı bcrypt isteği gönderir;
+// worker pool dolduğunda yeni istekler reddedilir. Çözüm: bcrypt öncesi bekleme kuyruğu.
 const loginAttempts = new Map();
 const MAX_ATTEMPTS = 5; // Başarısız deneme limiti
 const WINDOW_MS = 60_000; // 1 dakikalık pencere
@@ -250,6 +256,11 @@ function registerAuthEvents() {
             player.accountId = account.id;
             player.adminLevel = account.adminLevel;
             player.accountUsername = account.username;
+            // SessionData'ya da yaz — V8 Hidden Class optimizasyonu için (player objesine yeni key eklenmez)
+            const sess = (0, playerRegistry_1.getSession)(player);
+            sess.accountId = account.id;
+            sess.adminLevel = account.adminLevel;
+            sess.accountUsername = account.username;
             // O(1) session tracking: başarılı giriş sonrası Map'e kaydet
             activeAccounts.set(account.id, player);
             playerIdToAccountId.set(player.id, account.id);
@@ -391,6 +402,15 @@ function registerAuthEvents() {
         player.setVariable('faction_rank', factionRank);
         player.factionId = factionId;
         player.factionRank = factionRank;
+        if (factionId)
+            (0, FactionManager_1.registerPlayerFactionOnline)(player, factionId);
+        playerRegistry_1.onlineCharacters.set(charId, player); // O(1) global karakter haritasına ekle
+        // SessionData karakteri güncelle — V8 hidden class stabilize edilir
+        const sess2 = (0, playerRegistry_1.getSession)(player);
+        sess2.characterId = charId;
+        sess2.characterName = charName;
+        sess2.factionId = factionId ?? 0;
+        sess2.factionRank = factionRank;
         player.call('client:startHUD', [charName, player.id, charRow.money]);
         // Anlık sunucu saatini hemen gönder (30s interval beklenmez)
         const _now = new Date();
@@ -460,6 +480,7 @@ function registerAuthEvents() {
             if (!(0, safeEvent_1.isPlayerValid)(player))
                 return;
             player.characterId = charId;
+            playerRegistry_1.onlineCharacters.set(charId, player); // O(1) global karakter haritasına ekle
             player.call('client:hideLogin');
             // İzole boyuttan çıkarıp ana dünyaya geri getir
             player.dimension = 0;
@@ -477,6 +498,10 @@ function registerAuthEvents() {
                 const charName = `${ci.first_name} ${ci.last_name}`;
                 player.characterName = charName;
                 player.setVariable('characterName', charName);
+                // SessionData güncelle
+                const sessNew = (0, playerRegistry_1.getSession)(player);
+                sessNew.characterId = charId;
+                sessNew.characterName = charName;
                 player.call('client:startHUD', [charName, player.id, ci.money]);
                 const _now2 = new Date();
                 const _timeStr2 = `${String(_now2.getHours()).padStart(2, '0')}:${String(_now2.getMinutes()).padStart(2, '0')}`;

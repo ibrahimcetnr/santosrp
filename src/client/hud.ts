@@ -124,60 +124,84 @@ export function initHUD(): void {
   });
 
  // ── Araç HUD Poller (100ms) ───────────────────────────────────────────────
-  
-  // Önceki araç verilerini hafızada tutmak için bir obje oluşturuyoruz
+  // Hız ve araç durumu gibi sık değişen veriler için 100ms hızlı döngü.
+  // Yakıt, motor, kilit, kemer gibi seyrek değişen veriler ayrı data handler'larla gönderilir.
+
+  // ── Araç Boolean Bitmask Sabitleri ─────────────────────────────────────────
+  // JSON'da "engineOn":true (16 byte) → "f":1 (5 byte): %68 payload tasarrufu.
+  // Birden fazla flag aynı tick içinde değişirse 100ms loop'ta tek pakete birleşir.
+  const VFLAG_ENGINE   = 1;       // bit 0
+  const VFLAG_LOCKED   = 1 << 1;  // bit 1 = 2
+  const VFLAG_SEATBELT = 1 << 2;  // bit 2 = 4
+
+  let vehicleFlags = 0;    // güncel bitmask
+  let flagsDirty   = false; // 100ms loop'a "gönder" sinyali
+
   let lastVehicleData = {
     inVehicle: false,
     speed: -1,
     fuel: -1,
-    engineOn: false,
-    isLocked: false,
-    seatbelt: false
   };
 
+  // Hızlı yol: hız + araçta olma + bekleyen flag değişiklikleri
   setInterval(() => {
     if (!hudActive) return;
-    try {
-      const player  = mp.players.local;
-      const vehicle = player.vehicle;
+    const player  = mp.players.local;
+    const vehicle = player.vehicle;
 
-      // Araçta değilse ve zaten daha önce de değilsek boşuna gönderme
-      if (!vehicle) {
-        if (lastVehicleData.inVehicle) {
-          sendToHUD('hudVehicle', { inVehicle: false });
-          lastVehicleData.inVehicle = false;
-        }
-        return;
+    if (!vehicle) {
+      if (lastVehicleData.inVehicle) {
+        sendToHUD('chv', { inVehicle: false });
+        lastVehicleData.inVehicle = false;
+        lastVehicleData.speed     = -1;
+        lastVehicleData.fuel      = -1;
+        vehicleFlags = 0;
+        flagsDirty   = false;
       }
+      return;
+    }
 
-      // Güncel verileri çek
-      const speed = Math.round(vehicle.getSpeed() * 3.6);
-      const fuel = (vehicle.getVariable('fuel') as number | undefined) ?? 100;
-      const engineOn = !!vehicle.getVariable('engineStatus');
-      const isLocked = !!vehicle.getVariable('lockedStatus');
-      const seatbelt = !!player.getVariable('seatbelt');
-
-      // Sadece verilerden HERHANGİ BİRİ değiştiyse CEF'e veri gönder
-      if (
-        !lastVehicleData.inVehicle ||
-        lastVehicleData.speed !== speed ||
-        lastVehicleData.fuel !== fuel ||
-        lastVehicleData.engineOn !== engineOn ||
-        lastVehicleData.isLocked !== isLocked ||
-        lastVehicleData.seatbelt !== seatbelt
-      ) {
-        sendToHUD('hudVehicle', {
-          inVehicle: true,
-          speed,
-          fuel,
-          engineOn,
-          isLocked,
-          seatbelt,
-        });
-
-        // Yeni verileri hafızaya yaz
-        lastVehicleData = { inVehicle: true, speed, fuel, engineOn, isLocked, seatbelt };
-      }
-    } catch {}
+    const speed = Math.round(vehicle.getSpeed() * 3.6);
+    if (!lastVehicleData.inVehicle || lastVehicleData.speed !== speed) {
+      sendToHUD('chv', { inVehicle: true, speed });
+      lastVehicleData.inVehicle = true;
+      lastVehicleData.speed     = speed;
+    }
+    // Birden fazla flag aynı tick içinde değişirse tek JSON'da birleştirilir
+    if (flagsDirty) {
+      sendToHUD('chv', { f: vehicleFlags });
+      flagsDirty = false;
+    }
   }, 100);
+
+  // Yavaş yol: sunucu değişkeni güncellendiğinde tetiklenir (sıfır gereksiz polling)
+  mp.events.addDataHandler('fuel', (entity: EntityMp, value: number) => {
+    if (!hudActive) return;
+    if (entity !== mp.players.local.vehicle) return;
+    const fuel = (value as number | undefined) ?? 100;
+    if (lastVehicleData.fuel === fuel) return;
+    lastVehicleData.fuel = fuel;
+    sendToHUD('chv', { fuel });
+  });
+
+  // Bitmask yolu — 3 boolean → tek int, 100ms loop'ta gönderilir
+  mp.events.addDataHandler('engineStatus', (entity: EntityMp, value: boolean) => {
+    if (!hudActive) return;
+    if (entity !== mp.players.local.vehicle) return;
+    if (value) vehicleFlags |= VFLAG_ENGINE; else vehicleFlags &= ~VFLAG_ENGINE;
+    flagsDirty = true;
+  });
+
+  mp.events.addDataHandler('lockedStatus', (entity: EntityMp, value: boolean) => {
+    if (!hudActive) return;
+    if (entity !== mp.players.local.vehicle) return;
+    if (value) vehicleFlags |= VFLAG_LOCKED; else vehicleFlags &= ~VFLAG_LOCKED;
+    flagsDirty = true;
+  });
+
+  mp.events.addDataHandler('seatbelt', (entity: EntityMp, value: boolean) => {
+    if (!hudActive || entity.type !== 'player' || entity !== (mp.players.local as any)) return;
+    if (value) vehicleFlags |= VFLAG_SEATBELT; else vehicleFlags &= ~VFLAG_SEATBELT;
+    flagsDirty = true;
+  });
 }

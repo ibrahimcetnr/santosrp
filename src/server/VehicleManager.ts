@@ -16,48 +16,48 @@ const TIMEOUT_FAST     = 30 * 60 * 1000; // 30 dakika  (/parket komutuyla set ed
 /** dbId → aktif park zamanlayıcısı */
 const parkTimers = new Map<number, NodeJS.Timeout>();
 
-/** dbId → motor yakıt döngüsü */
-const engineLoops = new Map<number, NodeJS.Timeout>();
+/** Motor açık araçların dbId'si — tek bir global döngü bu Set'i işler */
+const activeEngines = new Set<number>();
 
 // ─── Motor Döngüsü ────────────────────────────────────────────────────────────────────────────────
 
 export function stopEngineLoop(dbId: number): void {
-    const loop = engineLoops.get(dbId);
-    if (loop !== undefined) {
-        clearInterval(loop);
-        engineLoops.delete(dbId);
-    }
+    activeEngines.delete(dbId);
 }
 
 export function startEngineLoop(vehicle: VehicleMp): void {
     const dbId = vehicle.getVariable('dbId') as number | undefined;
     if (!dbId) return;
-    if (engineLoops.has(dbId)) return;
+    vehicle.setVariable('engineStatus', true);
+    activeEngines.add(dbId);
+}
 
-    const loop = setInterval(() => {
-        // Araç yoksa döngüyü temizle
-        if (!vehicle || !mp.vehicles.exists(vehicle)) {
-            stopEngineLoop(dbId);
-            return;
+// ─── Global Singleton Motor Döngüsü ─────────────────────────────────────────
+// Binlerce ayrı setInterval yerine tüm aktif motorları tek döngüde işler.
+setInterval(() => {
+    if (activeEngines.size === 0) return;
+    const vehicles = mp.vehicles.toArray() as VehicleMp[];
+    for (const vehicle of vehicles) {
+        const dbId = vehicle.getVariable('dbId') as number | undefined;
+        if (!dbId || !activeEngines.has(dbId)) continue;
+
+        if (!mp.vehicles.exists(vehicle)) {
+            activeEngines.delete(dbId);
+            continue;
         }
 
-        // Motor kapalıysa yakıt tüketme, sadece bu turu atla
-        if (!vehicle.getVariable('engineStatus')) return;
-
         const vel   = vehicle.velocity;
-        const speed = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2); // m/s
+        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z); // m/s
 
         let fuel      = (vehicle.getVariable('fuel')      as number) ?? 65;
         let km        = (vehicle.getVariable('km')        as number) ?? 0;
         let dirtLevel = (vehicle.getVariable('dirtLevel') as number) ?? 0;
 
         if (speed > 0.5) {
-            // Yol üzerinde: yakıt tüketimi + km + kir
             fuel      -= 0.278;
             km        += (speed / 100);
             dirtLevel += 0.005;
         } else {
-            // Rölanti: sadece yakıt tüketimi
             fuel -= 0.07;
         }
 
@@ -66,24 +66,21 @@ export function startEngineLoop(vehicle: VehicleMp): void {
             vehicle.engine = false;
             vehicle.setVariable('engineStatus', false);
             vehicle.setVariable('fuel', 0);
-            stopEngineLoop(dbId);
+            activeEngines.delete(dbId);
 
-            // Araçtaki tüm oyunculara uyarı gönder
             mp.players.toArray().forEach((p: PlayerMp) => {
                 if (p.vehicle === vehicle) {
                     p.outputChatBox('!{#ef4444}[MOTOR] Yakıt bitti! Motor otomatik kapatıldı.');
                 }
             });
-            return;
+            continue;
         }
 
         vehicle.setVariable('fuel',      fuel);
         vehicle.setVariable('km',        km);
         vehicle.setVariable('dirtLevel', Math.min(dirtLevel, 15));
-    }, 10_000);
-
-    engineLoops.set(dbId, loop);
-}
+    }
+}, 10_000);
 
 // ─── Yardımcı Fonksiyonlar ───────────────────────────────────────────────────
 
@@ -141,49 +138,57 @@ async function parkVehicle(dbId: number): Promise<void> {
 /**
  * Dünyada bulunan tüm aktif araçların pozisyon ve metadata verilerini DB'ye yazar.
  * Sunucu kapatılırken ve 5 dakikada bir çağrılır.
+ * Tek bir Bulk UPDATE sorgusu kullanır — N+1 problemi tamamen ortadan kaldırıldı.
  */
 export async function saveAllVehicles(): Promise<void> {
     const vehicles = mp.vehicles.toArray() as VehicleMp[];
     if (vehicles.length === 0) return;
 
-    const CHUNK_SIZE = 20;
-    let saved = 0;
+    // Tüm geçerli araç verilerini tek bir array'de biriktir
+    const rows: Array<{ id: number; pos: string; meta: string }> = [];
 
-    for (let i = 0; i < vehicles.length; i += CHUNK_SIZE) {
-        const chunk = vehicles.slice(i, i + CHUNK_SIZE);
-        await Promise.allSettled(chunk.map(async (vehicle) => {
-            const dbId = vehicle.getVariable('dbId') as number | undefined;
-            if (!dbId) return;
-            // Native crash koruması: pointer geçersizleşmiş araçta position okuma
-            if (!mp.vehicles.exists(vehicle)) return;
-            try {
-                const pos = vehicle.position;
-                const posJson = JSON.stringify({
+    for (const vehicle of vehicles) {
+        const dbId = vehicle.getVariable('dbId') as number | undefined;
+        if (!dbId) continue;
+        if (!mp.vehicles.exists(vehicle)) continue;
+        try {
+            const pos = vehicle.position;
+            rows.push({
+                id:   dbId,
+                pos:  JSON.stringify({
                     x:         pos.x,
                     y:         pos.y,
                     z:         pos.z,
                     h:         vehicle.heading,
                     dimension: vehicle.dimension,
-                });
-                const metadata = JSON.stringify({
+                }),
+                meta: JSON.stringify({
                     fuel:      vehicle.getVariable('fuel')      ?? null,
                     km:        vehicle.getVariable('km')        ?? null,
                     dirtLevel: vehicle.getVariable('dirtLevel') ?? null,
-                });
-                await query(
-                    'UPDATE vehicles SET position = $1, metadata = $2 WHERE id = $3',
-                    [posJson, metadata, dbId]
-                );
-                saved++;
-            } catch (err) {
-                console.error(`[VEHICLE] Auto-save hatası (dbId: ${dbId}):`, err);
-            }
-        }));
-        // Event loop'a nefes ver: chunk'lar arası bekleme
-        await new Promise<void>(r => setImmediate(r));
+                }),
+            });
+        } catch (err) {
+            console.error(`[VEHICLE] Auto-save veri hatası (dbId: ${dbId}):`, err);
+        }
     }
 
-    console.log(`[VEHICLE] Auto-save: ${saved} araç kaydedildi.`);
+    if (rows.length === 0) return;
+
+    // Tek bir sorgu ile tüm araçları güncelle (Bulk UPDATE)
+    try {
+        await query(
+            `UPDATE vehicles AS v
+               SET position = (d.data->>'pos')::jsonb,
+                   metadata = (d.data->>'meta')::jsonb
+              FROM (SELECT json_array_elements($1::json) AS data) AS d
+             WHERE v.id = (d.data->>'id')::int`,
+            [JSON.stringify(rows)]
+        );
+        console.log(`[VEHICLE] Auto-save: ${rows.length} araç tek sorguda kaydedildi.`);
+    } catch (err) {
+        console.error('[VEHICLE] Bulk auto-save hatası:', err);
+    }
 }
 
 // 5 dakikada bir tüm aktif araçları otomatik kaydet
@@ -262,11 +267,7 @@ export function initVehicleManager(): void {
             parkTimers.delete(dbId);
         }
 
-        const engineLoop = engineLoops.get(dbId);
-        if (engineLoop !== undefined) {
-            clearInterval(engineLoop);
-            engineLoops.delete(dbId);
-        }
+        activeEngines.delete(dbId);
     });
 
     // Araca binmeye başlandığında (kapı koluna uzandığında) ───────────────────

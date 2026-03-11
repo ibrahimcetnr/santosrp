@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.factionManager = void 0;
+exports.registerPlayerFactionOnline = registerPlayerFactionOnline;
 exports.initFactionManager = initFactionManager;
 /**
  * SantosRP - Faction Manager (Server)
@@ -8,6 +9,7 @@ exports.initFactionManager = initFactionManager;
  */
 const db_1 = require("./db");
 const safeEvent_1 = require("./utils/safeEvent");
+const playerRegistry_1 = require("./playerRegistry");
 // ─── JSON parse yardımcısı (parse hatası → fallback döner) ───────────────────
 function safeParse(raw, fallback) {
     if (raw === null || raw === undefined)
@@ -66,6 +68,30 @@ class FactionManager {
 }
 const pendingOffers = new Map();
 exports.factionManager = new FactionManager();
+// ─── F3 Spam / DB Pool Exhaustion Koruması ──────────────────────────────────────────────────────
+// playerId → son istek timestamp'i. Oyuncu/karakter 3 saniyede bir istek atabilir.
+const factionRequestCooldowns = new Map();
+// ─── Birlik Çevrimiiçi Oyuncu Cache'i ───────────────────────────────────────────────────────
+// factionId → çevrimiiçi oyuncu Set'i. broadcastToFaction'daki O(N) maliyetini O(k)'ya düşürür.
+const factionOnlinePlayers = new Map();
+/** Oyuncu birliğe katıldığında veya karakter yüklenince çağrılır */
+function registerPlayerFactionOnline(player, factionId) {
+    let set = factionOnlinePlayers.get(factionId);
+    if (!set) {
+        set = new Set();
+        factionOnlinePlayers.set(factionId, set);
+    }
+    set.add(player);
+}
+/** Oyuncu birlikten ayrıldığında / atıldığında / bağlantısı kesildiğinde çağrılır */
+function unregisterPlayerFactionOnline(player, factionId) {
+    const set = factionOnlinePlayers.get(factionId);
+    if (!set)
+        return;
+    set.delete(player);
+    if (set.size === 0)
+        factionOnlinePlayers.delete(factionId);
+}
 // ─── Yardımcı: birlik üyelerini DB'den çek ───────────────────────────────────
 async function fetchFactionMembers(factionId) {
     const raw = await (0, db_1.query)('SELECT id, first_name, last_name, faction_rank, faction_division FROM characters WHERE faction_id = $1', [factionId]);
@@ -81,21 +107,27 @@ async function fetchFactionMembers(factionId) {
 }
 // ─── Yardımcı: paneli açık birlik üyelerine patch yayınla ────────────────────
 function broadcastToFaction(factionId, patch) {
+    const set = factionOnlinePlayers.get(factionId);
+    if (!set || set.size === 0)
+        return;
     const patchJson = JSON.stringify(patch);
-    const allPlayers = mp.players.toArray ? mp.players.toArray() : [];
-    for (const p of allPlayers) {
-        try {
-            if ((0, safeEvent_1.isPlayerValid)(p) && p.getVariable('faction_id') === factionId) {
-                p.call('client:faction:liveUpdate', [patchJson]);
-            }
+    for (const p of set) {
+        if ((0, safeEvent_1.isPlayerValid)(p)) {
+            p.call('client:faction:liveUpdate', [patchJson]);
         }
-        catch { }
     }
 }
 // ─── server:requestFactionData — İstemci F3'e bastığında çağrılır ────────────
+const FACTION_REQUEST_COOLDOWN_MS = 3_000;
 (0, safeEvent_1.safeEvent)('server:requestFactionData', async (player) => {
     if (!(0, safeEvent_1.isPlayerValid)(player))
         return;
+    // Rate-limit: 3 saniye cooldown
+    const now = Date.now();
+    const lastRequest = factionRequestCooldowns.get(player.id) ?? 0;
+    if (now - lastRequest < FACTION_REQUEST_COOLDOWN_MS)
+        return;
+    factionRequestCooldowns.set(player.id, now);
     const factionId = player.getVariable('faction_id');
     if (!factionId) {
         player.call('chat:push', ['!{#ef4444}[HATA] Bir birliğe üye değilsiniz.']);
@@ -193,13 +225,13 @@ function isMemberOf(player, factionId) {
     if (myCharId && myCharId === targetCharId)
         return;
     await (0, db_1.query)('UPDATE characters SET faction_id = NULL, faction_rank = 0, faction_division = 0 WHERE id = $1 AND faction_id = $2', [targetCharId, factionId]); // Çevrimiçi oyuncunun hafıza değişkenlerini güncelle — F3 menasını kapat
-    const allPlayers = mp.players.toArray ? mp.players.toArray() : [];
-    const targetPlayer = allPlayers.find((p) => p.characterId === targetCharId);
+    const targetPlayer = playerRegistry_1.onlineCharacters.get(targetCharId) ?? null;
     if (targetPlayer && (0, safeEvent_1.isPlayerValid)(targetPlayer)) {
         targetPlayer.setVariable('faction_id', null);
         targetPlayer.setVariable('faction_rank', 0);
         targetPlayer.factionId = null;
         targetPlayer.factionRank = 0;
+        unregisterPlayerFactionOnline(targetPlayer, factionId);
         targetPlayer.call('client:closeFactionUI', []);
         targetPlayer.call('chat:push', ['!{#ef4444}[BİRLİK] Birlikten atıldınız.']);
     }
@@ -365,10 +397,10 @@ function isMemberOf(player, factionId) {
             player.setVariable('faction_rank', lowestRank);
             player.factionId = offer.factionId;
             player.factionRank = lowestRank;
+            registerPlayerFactionOnline(player, offer.factionId);
             player.call('chat:push', [`!{#34d399}[BİRLİK] "${offer.factionName}" birliğine katıldınız!`]);
-            // Davet edeni bilgilendir
-            const allPlayers = mp.players.toArray ? mp.players.toArray() : [];
-            const inviter = allPlayers.find((p) => p.characterId === offer.inviterCharId);
+            // Davet edeni bilgilendir — O(1) Map lookup
+            const inviter = playerRegistry_1.onlineCharacters.get(offer.inviterCharId) ?? null;
             if (inviter && (0, safeEvent_1.isPlayerValid)(inviter)) {
                 inviter.call('chat:push', [`!{#34d399}[BİRLİK] Davet ettiğiniz oyuncu birliğe katıldı.`]);
             }
@@ -397,6 +429,7 @@ function isMemberOf(player, factionId) {
     player.setVariable('faction_rank', 0);
     player.factionId = null;
     player.factionRank = 0;
+    unregisterPlayerFactionOnline(player, factionId);
     player.call('client:closeFactionUI', []);
     player.call('chat:push', ['!{#fbbf24}[BİRLİK] Birlikten ayrıldınız.']);
     broadcastToFaction(factionId, { members: await fetchFactionMembers(factionId) });
@@ -479,6 +512,13 @@ function isMemberOf(player, factionId) {
 });
 function initFactionManager() {
     exports.factionManager.loadAllFactions().catch((err) => console.error('[FACTION] loadAllFactions hatası:', err));
+    // Oyuncu bağlantısı kesildiğinde birlik online cache'ini ve cooldown kaydını temizle
+    mp.events.add('playerQuit', (player) => {
+        const factionId = player.getVariable('faction_id');
+        if (factionId)
+            unregisterPlayerFactionOnline(player, factionId);
+        factionRequestCooldowns.delete(player.id);
+    });
     console.log('[SERVER] Faction Manager başlatıldı.');
 }
 //# sourceMappingURL=FactionManager.js.map

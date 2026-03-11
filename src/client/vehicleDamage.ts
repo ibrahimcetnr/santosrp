@@ -2,8 +2,7 @@
  * SantosRP — Vehicle Damage / Collision Monitor (Client)
  * RAGE:MP 1.1+ uyumlu, tamamen Client-Side çalışan Dinamik Hasar Algılayıcı.
  * Server eventi deprecated olduğu için, optimize edilmiş Interval kullanır.
- */
-
+ */import { BinarySerializer } from '../shared/BinarySerializer';
 const DEFORMATION_THRESHOLD = 0.005;
 const POLL_INTERVAL_MS      = 250; // Saniyede 4 kez kontrol
 const DRIVER_SEAT           = -1;  // Şoför koltuğu
@@ -12,6 +11,7 @@ let lastBodyHealth = 1000;
 let lastVehicle: VehicleMp | null = null;
 let damageTimer: ReturnType<typeof setInterval> | null = null;
 let isMonitorInitialized = false;
+let cachedDimensions: { minimum: Vector3Mp, maximum: Vector3Mp } | null = null;
 
 function checkVehicleDamage(): void {
     const player  = mp.players.local;
@@ -23,6 +23,7 @@ function checkVehicleDamage(): void {
         if (lastVehicle !== vehicle) {
             lastVehicle = vehicle;
             lastBodyHealth = vehicle.getBodyHealth();
+            cachedDimensions = mp.game.gameplay.getModelDimensions(vehicle.model);
             return;
         }
 
@@ -42,9 +43,9 @@ function checkVehicleDamage(): void {
                 if (!vehicle || !mp.vehicles.exists(vehicle)) return;
 
                 // 1. Dinamik Boyutları Çek (Bison ile Panto ayrımını yapan kod)
-                const modelDimensions = mp.game.gameplay.getModelDimensions(vehicle.model);
-                const min = modelDimensions.minimum;
-                const max = modelDimensions.maximum;
+                const dims = cachedDimensions ?? mp.game.gameplay.getModelDimensions(vehicle.model);
+                const min = dims.minimum;
+                const max = dims.maximum;
 
                 // 2. Dinamik Örümcek Ağı (Arabanın tam köşeleri)
                 const dynamicCheckPoints = [
@@ -86,6 +87,7 @@ function checkVehicleDamage(): void {
         // Araçtan inince veya yolcuyken canı sıfırla
         lastBodyHealth = 1000;
         lastVehicle = null;
+        cachedDimensions = null;
     }
 }
 
@@ -131,9 +133,9 @@ function extractVehicleDamage(vehicle: VehicleMp): void {
     }
 
     // 4. Göçükleri (Deformations) Oku - Senin Dinamik Boyut Algoritmanla!
-    const modelDimensions = mp.game.gameplay.getModelDimensions(vehicle.model);
-    const min = modelDimensions.minimum;
-    const max = modelDimensions.maximum;
+    const dims = cachedDimensions ?? mp.game.gameplay.getModelDimensions(vehicle.model);
+    const min = dims.minimum;
+    const max = dims.maximum;
 
     const dynamicCheckPoints = [
         { name: 'Ön Tampon',        offset: { x: 0.0,   y: max.y, z: 0.0 } },
@@ -161,6 +163,15 @@ function extractVehicleDamage(vehicle: VehicleMp): void {
         }
     }
 
-    // Hasar paketini kargola ve Server'a yolla!
-    mp.events.callRemote('server:receiveVehicleDamage', vehicle, JSON.stringify(damageData));
+    // Hasar paketini binary'ye sıkıştır ve Server'a yolla (JSON'a kıyasla ~%50-70 daha küçük)
+    const windowsMask = BinarySerializer.packBools(damageData.windows.map((v: number) => v === 1));
+    const doorsMask   = BinarySerializer.packBools(damageData.doors.map((v: number) => v === 1));
+    const tiresMask   = BinarySerializer.packBools(damageData.tires.map((v: number) => v === 1));
+    const encoded = BinarySerializer.encodeVehicleDamage({
+        windows:      windowsMask,
+        doors:        doorsMask,
+        tires:        tiresMask,
+        deformations: damageData.deformations,
+    });
+    mp.events.callRemote('s:rvd', vehicle, encoded);
 }

@@ -49,16 +49,30 @@
     const segments: ChatSegment[] = [];
 
     // RAGE'in ürettiği <span style="color: #RRGGBB">metin</span> formatı
+    // indexOf/slice ile O(n) tek geçiş — RegExp exec'ten çok daha hızlı
     if (raw.includes('<span')) {
-      const spanRe = /<span\s[^>]*style="[^"]*color:\s*(#[0-9A-Fa-f]{6})[^"]*"[^>]*>([\s\S]*?)<\/span>/gi;
-      let last = 0;
-      let m: RegExpExecArray | null;
-      while ((m = spanRe.exec(raw)) !== null) {
-        if (m.index > last) segments.push({ text: raw.slice(last, m.index), color: null });
-        segments.push({ text: m[2], color: m[1] });
-        last = spanRe.lastIndex;
+      let pos = 0;
+      while (pos < raw.length) {
+        const spanStart = raw.indexOf('<span', pos);
+        if (spanStart === -1) {
+          const rest = raw.slice(pos);
+          if (rest) segments.push({ text: rest, color: null });
+          break;
+        }
+        if (spanStart > pos) segments.push({ text: raw.slice(pos, spanStart), color: null });
+        const gt = raw.indexOf('>', spanStart);
+        if (gt === -1) break;
+        let color: string | null = null;
+        const colorPos = raw.indexOf('color:', spanStart);
+        if (colorPos !== -1 && colorPos < gt) {
+          const hashPos = raw.indexOf('#', colorPos);
+          if (hashPos !== -1 && hashPos < gt) color = raw.slice(hashPos, hashPos + 7);
+        }
+        const spanEnd = raw.indexOf('</span>', gt + 1);
+        if (spanEnd === -1) break;
+        segments.push({ text: raw.slice(gt + 1, spanEnd), color });
+        pos = spanEnd + 7;
       }
-      if (last < raw.length) segments.push({ text: raw.slice(last), color: null });
       if (segments.length > 0) return segments;
     }
 
@@ -345,9 +359,8 @@
     };
 
     // Native bridge: markAsChat() ile bağlı browser'a server outputChatBox → chat:push eventi gelir
-    window.mp?.events?.add('chat:push', (text: string) => {
-      addChatMessage(text);
-    });
+    const chatHandler = (text: string) => { addChatMessage(text); };
+    window.mp?.events?.add('chat:push', chatHandler);
 
     // Fallback: client/hud.ts üzerinden gelen hudMessage (markAsChat yoksa)
     window.addChatMessage = (text: string) => { addChatMessage(text); };
@@ -365,24 +378,25 @@
     };
 
     // Araç gösterge paneli güncellemesi (hud.ts'den 100ms'de bir gelir)
-    window.hudVehicle = (data: {
+    // f = bitmask: bit0=engine, bit1=locked, bit2=seatbelt (3 boolean → 1 int)
+    window.chv = (data: {
       inVehicle: boolean;
       speed?: number;
       fuel?: number;
-      engineOn?: boolean;
-      isLocked?: boolean;
-      seatbelt?: boolean;
+      f?: number;           // Bitmask: bit0=engine, bit1=locked, bit2=seatbelt
       lightsOn?: boolean;
       parkingBrakeOn?: boolean;
     }) => {
       inVehicle    = data.inVehicle;
       if (!data.inVehicle) return;
-      vehicleSpeed = data.speed    ?? vehicleSpeed;
-      fuelLevel    = data.fuel     ?? fuelLevel;
-      isEngineOn   = data.engineOn ?? isEngineOn;
-      isLocked     = data.isLocked ?? isLocked;
-      hasSeatbelt  = data.seatbelt ?? hasSeatbelt;
-      isLightsOn   = data.lightsOn ?? isLightsOn;
+      vehicleSpeed = data.speed ?? vehicleSpeed;
+      fuelLevel    = data.fuel  ?? fuelLevel;
+      if (data.f !== undefined) {
+        isEngineOn  = (data.f & 1) !== 0;
+        isLocked    = (data.f & 2) !== 0;
+        hasSeatbelt = (data.f & 4) !== 0;
+      }
+      isLightsOn       = data.lightsOn      ?? isLightsOn;
       isParkingBrakeOn = data.parkingBrakeOn ?? isParkingBrakeOn;
     };
 
@@ -395,6 +409,7 @@
     return () => {
       clearInterval(timeInterval);
       window.removeEventListener('keydown', handleChatKeydown);
+      window.mp?.events?.remove('chat:push', chatHandler);
       delete window.hudInit;
       delete window.hudUpdateLocation;
       delete window.hudUpdateTime;
@@ -404,7 +419,7 @@
       delete window.hudMessage;
       delete window.chatAPI;
       delete window.updateCommandList;
-      delete window.hudVehicle;
+      delete window.chv;
     };
   });
   
@@ -428,7 +443,7 @@
 
   <div class="chat-container">
     <div class="chat-messages">
-      {#each [...messages].reverse() as msg (msg.id)}
+      {#each messages as msg (msg.id)}
         <div class="chat-message {msg.type}">
           {#each msg.segments as seg}
             {#if seg.color}<span style="color:{seg.color}">{seg.text}</span>{:else}{seg.text}{/if}
@@ -584,7 +599,7 @@
 
   .chat-message {
     font-size: 15px; font-weight: 700; line-height: 1.4; letter-spacing: 0.3px;
-    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 2px 4px rgba(0,0,0,0.8);
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
   }
   .chat-message.rp { color: #d6a8ff; }
   .chat-message.ooc { color: #b3b3b3; }

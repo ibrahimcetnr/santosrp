@@ -2,6 +2,11 @@
  * RAGE:MP - Server Entry Point
  * SantosRP Server-Tarafı Ana Dosyası
  */
+// ─── Libuv Threadpool Genişletmesi ────────────────────────────────────────────
+// Node.js varsayılanı 4 thread'dir; 1000 CCU concurrent I/O & DB yükünde bu tıkanır.
+// Env'de zaten set edilmişse (systemd EnvironmentFile vb.) override etmiyoruz.
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '128';
+// ──────────────────────────────────────────────────────────────────────────────
 import { registerAuthEvents } from './auth';
 import { initBcryptPool, destroyBcryptPool } from './bcrypt-pool';
 import { startSaveQueue, stopSaveQueue, flushAll, flushCharacterSync, queueCharacterSave } from './save-queue';
@@ -13,6 +18,7 @@ import { initWeatherSystem } from './weather';
 import { recoverVehicles, initVehicleManager, saveAllVehicles } from './VehicleManager';
 import { initVehicleDataManager } from './VehicleDataManager';
 import { initFactionManager } from './FactionManager';
+import { onlineCharacters, playerSessions } from './playerRegistry';
 
 import '../shared/types'; // PlayerMp augmentation
 
@@ -43,6 +49,57 @@ setInterval(() => {
     `External: ${toMB(mem.external)}MB`
   );
 }, 5 * 60_000);
+
+// ─── Manuel V8 GC Tetikleyicisi ───────────────────────────────────────────────
+//
+// !!! ÖNEMLİ: SUNUCU BU BAYRAK İLE BASLATILMALIDIR !!!
+//   node --expose-gc --max-old-space-size=8192 dist/server/index.js
+//   (package.json > "start" script'ına eklendi)
+//
+// --expose-gc olmadan global.gc tanımsızdır; aşağıdaki blok sessizce atlanır.
+// V8 "Stop-the-world" Major GC'si normalde heap doluğunda beklenmedik anlarda
+// patlar ve tüm Event Loop'u dondurur. Bu mekanizma ile GC;
+//   - sunucunun en boş olduğu saatlerde (04:00-05:00) planlanır,
+//   - VEYA heap kullanımı %75'i geçtiğinde hemen tetiklenir.
+// Böylece major GC'nin anlamsız zamanlarda oyuncuya lag yaşatması engellenir.
+(function initGCScheduler() {
+  if (typeof (global as any).gc !== 'function') {
+    console.warn(
+      '[GC] global.gc tanımsız. Manuel GC devre dışı!\n' +
+      '[GC] Sunucuyu --expose-gc ile başlatın: node --expose-gc --max-old-space-size=8192 dist/server/index.js'
+    );
+    return;
+  }
+
+  const gc = (global as any).gc as () => void;
+
+  // Her 30 dakikada bir heap yüzünü kontrol et
+  setInterval(() => {
+    const mem  = process.memoryUsage();
+    const used = mem.heapUsed;
+    const total = mem.heapTotal;
+    const utilization = used / total;
+
+    // Kriter 1: heap %75+ doluysa hemen temizle
+    if (utilization >= 0.75) {
+      console.log(`[GC] Heap %${(utilization * 100).toFixed(0)} dolu — manuel GC tetikleniyor...`);
+      gc();
+      const after = process.memoryUsage();
+      const freed = ((used - after.heapUsed) / 1024 / 1024).toFixed(1);
+      console.log(`[GC] Tamamlandı. Kurtarılan: ~${freed}MB`);
+      return;
+    }
+
+    // Kriter 2: saat 04:00-05:00 arasındaysa (sunucu en boş) temizle
+    const hour = new Date().getHours();
+    if (hour >= 4 && hour < 5) {
+      console.log('[GC] Gece bakım penceresi (04:00-05:00) — proaktif GC tetikleniyor...');
+      gc();
+    }
+  }, 30 * 60_000); // 30 dakika
+
+  console.log('[GC] Manuel GC zamanılayıcısı aktif (30dk kontrol, %75 heap / saat 04:00 tetik).');
+}());
 
 // Worker Thread Pool'ları başlat
 initBcryptPool();
@@ -86,6 +143,11 @@ safeEvent('playerDisconnect', async (player: PlayerMp, exitType: string, reason:
   }
   if (!charId) return;
 
+  // Global karakter map'inden çıkar (O(1) — allPlayers.find() scan yok)
+  onlineCharacters.delete(charId);
+  // SessionData temizle — memory leak önlemi
+  playerSessions.delete(player.id);
+
   let accId: number | undefined;
   try { accId = player.accountId; } catch {}
 
@@ -115,11 +177,11 @@ async function gracefulShutdown(): Promise<void> {
   isShuttingDown = true;
   console.log('[SERVER] Sunucu kapatılıyor, veriler kaydediliyor...');
 
-  // 10 saniyede flush tamamlanmazsa zorla kapat (systemd TimeoutStopSec aşımını önler)
+  // 45 saniyede flush tamamlanmazsa zorla kapat — 1000 oyuncu/araç için yeterli süre
   const forceExitTimer = setTimeout(() => {
-    console.error('[SERVER] Flush zaman aşımı (10s), zorla kapatılıyor...');
+    console.error('[SERVER] Flush zaman aşımı (45s), zorla kapatılıyor...');
     process.exit(1);
-  }, 10_000);
+  }, 45_000);
 
   try {
     await saveAllVehicles();
@@ -143,32 +205,18 @@ async function gracefulShutdown(): Promise<void> {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT',  gracefulShutdown);
 
-export { queueCharacterSave };
+export { queueCharacterSave, onlineCharacters, playerSessions };
 
-// ── Sunucu Saati Yayını (her 30 saniyede bir) ─────────────────────────────────
-// Oyuncuların HUD'unda sunucu saati/tarihi gösterilir; cihaz saati değil.
+// ── Karakter Pozisyon Kaydı (her 30 saniyede bir) ─────────────────────────────────────
+// Saat yayını kaldırıldı: HUD.svelte timeOffset ile loşal hesapladığından sunucu paketi geréksizdir.
 setInterval(() => {
-  const now     = new Date();
-  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const dateStr = now.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  let _idx = 0;
   mp.players.forEach((p: PlayerMp) => {
-    const _delay = _idx * 100; // Her oyuncu arasına 100ms gecikme — lag spike önlemi
-    setTimeout(() => {
-      try {
-        if (isPlayerValid(p) && p.characterId) {
-          p.call('client:hudTime', [timeStr, dateStr]);
-          // Aktif oyuncunun pozisyonunu 30 saniyede bir güvenli şekilde kuyruğa ekle
-          if (p.position) {
-            queueCharacterSave({
-              characterId: p.characterId,
-              position: { x: p.position.x, y: p.position.y, z: p.position.z }
-            });
-          }
-        }
-      } catch {}
-    }, _delay);
-    _idx++;
+    if (isPlayerValid(p) && p.characterId && p.position) {
+      queueCharacterSave({
+        characterId: p.characterId,
+        position: { x: p.position.x, y: p.position.y, z: p.position.z }
+      });
+    }
   });
 }, 30_000);
 

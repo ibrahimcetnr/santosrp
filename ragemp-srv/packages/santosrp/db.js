@@ -47,7 +47,7 @@ if (!process.env.DATABASE_URL) {
 const connectionString = process.env.DATABASE_URL;
 exports.pool = new pg_1.Pool({
     connectionString,
-    max: 32,
+    max: 150,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 5_000,
 });

@@ -8,6 +8,8 @@ declare class FactionManager {
     getAllFactions(): Record<string, unknown>[];
 }
 export declare const factionManager: FactionManager;
+/** Oyuncu birliğe katıldığında veya karakter yüklenince çağrılır */
+export declare function registerPlayerFactionOnline(player: PlayerMp, factionId: number): void;
 export declare function initFactionManager(): void;
 export {};
 //# sourceMappingURL=FactionManager.d.ts.map

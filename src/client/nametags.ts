@@ -11,6 +11,7 @@ class PlayerData {
     lastCheck = 0;
     charName = "Bilinmeyen";
     isTyping = false;
+    displayString = "Bilinmeyen";
 }
 
 // Havuzlar
@@ -45,6 +46,7 @@ export function initNametags(): void {
         if (entity.type === 'player') {
             const data = getOrCreateData(entity.remoteId);
             data.charName = value as string;
+            data.displayString = data.charName + ' (' + entity.remoteId + ')';
         }
     });
     mp.events.addDataHandler('isTyping', (entity, value) => {
@@ -97,7 +99,8 @@ mp.events.add('render', () => {
         const dx = tPos.x - localPos.x;
         const dy = tPos.y - localPos.y;
         
-        if ((dx * dx + dy * dy) <= MAX_DIST_SQ) {
+        const distSq2d = dx * dx + dy * dy;
+        if (distSq2d <= MAX_DIST_SQ) {
             const targetHead = target.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
             const localHead = local.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
             const screenTest = mp.game.graphics.world3dToScreen2d(targetHead.x, targetHead.y, targetHead.z);
@@ -106,7 +109,13 @@ mp.events.add('render', () => {
             cacheData.lastCheck = now;
 
             if (screenTest) {
-                cacheData.visible = !mp.raycasting.testPointToPoint(localHead, targetHead, [local.handle, target.handle], 19);
+                if (distSq2d < 225) {
+                    // 15m içi: raycast ile görünürlük kontrolü (CPU maliyetli)
+                    cacheData.visible = !mp.raycasting.testPointToPoint(localHead, targetHead, [local.handle, target.handle], 19);
+                } else {
+                    // 15–20m arası: raycast yok, direkt görünür kabul et
+                    cacheData.visible = true;
+                }
             } else {
                 cacheData.visible = false;
             }
@@ -114,6 +123,7 @@ mp.events.add('render', () => {
     }
 
     // --- 2. ÇİZİM DÖNGÜSÜ (SIFIR ÇÖP - SIFIR TAKILMA) ---
+    let drawCount = 0;
     for (let i = 0; i < len; i++) {
         const player = streamedArray[i];
         if (player === local || !player.handle || player.alpha === 0) continue;
@@ -125,6 +135,7 @@ mp.events.add('render', () => {
             const newData = getOrCreateData(pId);
             newData.charName = player.getVariable('characterName') as string || player.name;
             newData.isTyping = player.getVariable('isTyping') as boolean || false;
+            newData.displayString = newData.charName + ' (' + pId + ')';
             continue;
         }
 
@@ -142,15 +153,14 @@ mp.events.add('render', () => {
         let drawX = pPos.x;
         let drawY = pPos.y;
         let drawZ = pPos.z + 1.2; // Fallback yüksekliği
-        try {
+        if (player && player.handle !== 0 && mp.players.exists(player)) {
             const boneCoords = player.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
             if (boneCoords && boneCoords.z !== 0) {
                 drawX = boneCoords.x;
                 drawY = boneCoords.y;
-                // Kafanın yüksekliği (Eskiden 0.45'ti, şimdi +0.55 yaparak daha yukarı kaldırdık)
                 drawZ = boneCoords.z + 0.50;
             }
-        } catch (e) { }
+        }
         const screen = mp.game.graphics.world3dToScreen2d(drawX, drawY, drawZ);
         if (!screen) continue;
 
@@ -166,7 +176,7 @@ mp.events.add('render', () => {
         sharedTextOpts.scale[0] = scale;
         sharedTextOpts.scale[1] = scale;
 
-        mp.game.graphics.drawText(`${cache.charName} (${pId})`, sharedScreenPos, sharedTextOpts);
+        mp.game.graphics.drawText(cache.displayString, sharedScreenPos, sharedTextOpts);
 
         if (cache.isTyping) {
             sharedScreenPos[1] -= 0.035; // Yazıyor yazısını biraz yukarı kaydır
@@ -175,5 +185,7 @@ mp.events.add('render', () => {
             
             mp.game.graphics.drawText('* Yazıyor...', sharedScreenPos, sharedTypingOpts);
         }
+
+        if (++drawCount >= 30) break;
     }
 });

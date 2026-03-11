@@ -9,6 +9,35 @@ import { initFaction } from './faction';
 import { initScrollMenu } from './scrollMenu';
 
 // RAGE native chat'i en erken anda kapat — "Multiplayer Started" mesajını engeller
+
+// ─── Global Blip Yöneticisi ───────────────────────────────────────────────────
+// Her event'te ayrı setInterval açmak Memory Leak yaratır.
+// Tek bir global döngü tüm aktif blipleri yönetir.
+interface TrackedBlip {
+    blip: any;
+    x: number;
+    y: number;
+    z: number;
+    expiresAt: number;
+}
+const activeBlips = new Set<TrackedBlip>();
+
+setInterval(() => {
+    if (activeBlips.size === 0) return;
+    const now = Date.now();
+    const pPos = mp.players.local.position;
+    for (const entry of activeBlips) {
+        const dx = pPos.x - entry.x;
+        const dy = pPos.y - entry.y;
+        const dz = pPos.z - entry.z;
+        const distSq = dx * dx + dy * dy + dz * dz; // sqrt yok — çarpım yeterli (30m → 900)
+        if (distSq < 900 || now >= entry.expiresAt) {
+            try { entry.blip.destroy(); } catch {}
+            activeBlips.delete(entry);
+        }
+    }
+}, 2000);
+
 mp.gui.chat.activate(false);
 mp.gui.chat.show(false);
 mp.game.ui.displayHud(false);
@@ -116,9 +145,10 @@ mp.events.addDataHandler('engine', (entity: EntityMp, eStatus: boolean) => {
 
 mp.events.add('render', () => {
     const player = mp.players.local;
+    const veh    = player.vehicle;
 
     // Yakın dövüş silahı kontrolü
-    if (mp.game.invoke('0x475768A975D5AD17', player.handle, 6)) {
+    if (mp.game.weapon.isPedArmed(player.handle, 6)) {
         mp.game.controls.disableControlAction(0, 140, true);
         mp.game.controls.disableControlAction(0, 141, true);
         mp.game.controls.disableControlAction(0, 142, true);
@@ -134,7 +164,7 @@ mp.events.add('render', () => {
     mp.game.controls.disableControlAction(0, 36, true); // INPUT_DUCK
 
     // Araç içindeyse
-    if (player.vehicle) {
+    if (veh) {
         // Radyo değiştirme tuşlarını engelle (FPS drop önlemi — radyoyu araca binişte tek seferlik kapatıyoruz)
         mp.game.controls.disableControlAction(0, 19, true);  // INPUT_VEH_NEXT_RADIO_TRACK
         mp.game.controls.disableControlAction(0, 20, true);  // INPUT_VEH_PREV_RADIO_TRACK
@@ -142,20 +172,20 @@ mp.events.add('render', () => {
 
         // Hız sabitleyici
         if (cruiseActive) {
-            if (!player.vehicle.engine) {
+            if (!veh.engine) {
                 cruiseActive = false;
             } else if (mp.game.controls.isControlPressed(0, 72) || mp.game.controls.isControlPressed(0, 76)) {
                 cruiseActive = false;
                 mp.events.call('chat:push', '!{#94a3b8}[HIZ SABİTLEYİCİ] Fren algılandı — devre dışı.');
             } else {
-                try {
+                if (mp.vehicles.exists(veh)) {
                     mp.game.controls.disableControlAction(0, 71, true);
-                    const cur  = player.vehicle.getSpeed();
+                    const cur  = veh.getSpeed();
                     const diff = cruiseTargetSpeed - cur;
                     if (diff > 0.3) {
                         mp.game.controls.setControlNormal(0, 71, Math.min(diff * 0.6, 1.0));
                     }
-                } catch {}
+                }
             }
         }
     }
@@ -268,31 +298,41 @@ mp.events.add('entityStreamIn', (entity: EntityMp) => {
             entity.setIndicatorLights(0, indRight);
         }
 
-        // Kapıların Durumu
-        for (let i = 0; i <= 5; i++) {
-            try {
-                if (entity.getVariable(`door_${i}`)) {
-                    entity.setDoorOpen(i, false, true); // instantly: true (Animasyonsuz, anında açık spawn et)
-                } else {
-                    entity.setDoorShut(i, true);        // instantly: true (Anında kapalı spawn et)
-                }
-            } catch (err) {}
-        }
+        // Kapı ve cam sync'i rastgele 100–500ms geciktir: kalabalık alanlarda
+        // aynı anda 50 araç stream-in olsa bile native çağrılar farklı frame'lere dağılır.
+        const streamVehicle = entity as VehicleMp;
+        const streamDelay = 100 + Math.random() * 400;
+        setTimeout(() => {
+            if (!mp.vehicles.exists(streamVehicle)) return;
 
-        // Camların Durumu
-        for (let i = 0; i <= 3; i++) {
-            try {
-                if (entity.getVariable(`window_${i}`)) {
-                    entity.rollDownWindow(i);
-                } else {
-                    entity.rollUpWindow(i);
-                }
-            } catch (err) {}
-        }
+            // Kapıların Durumu
+            for (let i = 0; i <= 5; i++) {
+                try {
+                    if (streamVehicle.getVariable(`door_${i}`)) {
+                        streamVehicle.setDoorOpen(i, false, true);
+                    } else {
+                        streamVehicle.setDoorShut(i, true);
+                    }
+                } catch (err) {}
+            }
+
+            // Camların Durumu
+            for (let i = 0; i <= 3; i++) {
+                try {
+                    if (streamVehicle.getVariable(`window_${i}`)) {
+                        streamVehicle.rollDownWindow(i);
+                    } else {
+                        streamVehicle.rollUpWindow(i);
+                    }
+                } catch (err) {}
+            }
+        }, streamDelay);
     }
 });
 
 // ─── Araç Takip Blip ─────────────────────────────────────────────────────────
+// Yakınlık ve zaman kontrolü Global Blip Yöneticisi tarafından yapılır.
+// Bu event sadece yeni blip'i Set'e ekler — setInterval/setTimeout açılmaz.
 
 mp.events.add('client:vehicle:blip', (x: number, y: number, z: number, plate: string) => {
     try {
@@ -302,32 +342,7 @@ mp.events.add('client:vehicle:blip', (x: number, y: number, z: number, plate: st
             scale: 1.0,
             shortRange: false,
         });
-
-        // Oyuncu yaklaşırsa (30m) veya 60 saniye sonra blip'i sil
-        let removed = false;
-        let timeoutHandle: ReturnType<typeof setTimeout>;
-        const removeBlip = () => {
-            if (removed) return;
-            removed = true;
-            try { blip.destroy(); } catch {}
-            clearInterval(proximityCheck);
-            clearTimeout(timeoutHandle); // Memory leak önlemi: erken silinirse timer'ı da temizle
-        };
-
-        const proximityCheck = setInterval(() => {
-            if (!blip) { removeBlip(); return; }
-            try {
-                const pPos = mp.players.local.position;
-                const dist = Math.sqrt(
-                    Math.pow(pPos.x - x, 2) +
-                    Math.pow(pPos.y - y, 2) +
-                    Math.pow(pPos.z - z, 2)
-                );
-                if (dist < 30) removeBlip();
-            } catch { removeBlip(); }
-        }, 2000);
-
-        timeoutHandle = setTimeout(removeBlip, 60_000);
+        activeBlips.add({ blip, x, y, z, expiresAt: Date.now() + 60_000 });
     } catch {}
 });
 

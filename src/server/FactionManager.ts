@@ -4,6 +4,7 @@
  */
 import { query } from './db';
 import { safeEvent, isPlayerValid } from './utils/safeEvent';
+import { onlineCharacters } from './playerRegistry';
 
 // ─── JSON parse yardımcısı (parse hatası → fallback döner) ───────────────────
 function safeParse<T>(raw: unknown, fallback: T): T {
@@ -79,6 +80,32 @@ const pendingOffers = new Map<string, PendingOffer>();
 
 export const factionManager = new FactionManager();
 
+// ─── F3 Spam / DB Pool Exhaustion Koruması ──────────────────────────────────────────────────────
+// playerId → son istek timestamp'i. Oyuncu/karakter 3 saniyede bir istek atabilir.
+const factionRequestCooldowns = new Map<number, number>();
+
+// ─── Birlik Çevrimiiçi Oyuncu Cache'i ───────────────────────────────────────────────────────
+// factionId → çevrimiiçi oyuncu Set'i. broadcastToFaction'daki O(N) maliyetini O(k)'ya düşürür.
+const factionOnlinePlayers = new Map<number, Set<PlayerMp>>();
+
+/** Oyuncu birliğe katıldığında veya karakter yüklenince çağrılır */
+export function registerPlayerFactionOnline(player: PlayerMp, factionId: number): void {
+  let set = factionOnlinePlayers.get(factionId);
+  if (!set) {
+    set = new Set<PlayerMp>();
+    factionOnlinePlayers.set(factionId, set);
+  }
+  set.add(player);
+}
+
+/** Oyuncu birlikten ayrıldığında / atıldığında / bağlantısı kesildiğinde çağrılır */
+function unregisterPlayerFactionOnline(player: PlayerMp, factionId: number): void {
+  const set = factionOnlinePlayers.get(factionId);
+  if (!set) return;
+  set.delete(player);
+  if (set.size === 0) factionOnlinePlayers.delete(factionId);
+}
+
 // ─── Yardımcı: birlik üyelerini DB'den çek ───────────────────────────────────
 async function fetchFactionMembers(factionId: number): Promise<Record<string, unknown>[]> {
   const raw = await query(
@@ -98,20 +125,26 @@ async function fetchFactionMembers(factionId: number): Promise<Record<string, un
 
 // ─── Yardımcı: paneli açık birlik üyelerine patch yayınla ────────────────────
 function broadcastToFaction(factionId: number, patch: Record<string, unknown>): void {
+  const set = factionOnlinePlayers.get(factionId);
+  if (!set || set.size === 0) return;
   const patchJson = JSON.stringify(patch);
-  const allPlayers: PlayerMp[] = (mp.players as any).toArray ? (mp.players as any).toArray() : [];
-  for (const p of allPlayers) {
-    try {
-      if (isPlayerValid(p) && (p.getVariable('faction_id') as number | null | undefined) === factionId) {
-        p.call('client:faction:liveUpdate', [patchJson]);
-      }
-    } catch {}
+  for (const p of set) {
+    if (isPlayerValid(p)) {
+      p.call('client:faction:liveUpdate', [patchJson]);
+    }
   }
 }
 
 // ─── server:requestFactionData — İstemci F3'e bastığında çağrılır ────────────
+const FACTION_REQUEST_COOLDOWN_MS = 3_000;
 safeEvent('server:requestFactionData', async (player: PlayerMp) => {
   if (!isPlayerValid(player)) return;
+
+  // Rate-limit: 3 saniye cooldown
+  const now = Date.now();
+  const lastRequest = factionRequestCooldowns.get(player.id) ?? 0;
+  if (now - lastRequest < FACTION_REQUEST_COOLDOWN_MS) return;
+  factionRequestCooldowns.set(player.id, now);
 
   const factionId: number | null | undefined = player.getVariable('faction_id');
 
@@ -230,13 +263,13 @@ safeEvent('server:faction:kickMember', async (player: PlayerMp, factionId: numbe
     'UPDATE characters SET faction_id = NULL, faction_rank = 0, faction_division = 0 WHERE id = $1 AND faction_id = $2',
     [targetCharId, factionId]
   );  // Çevrimiçi oyuncunun hafıza değişkenlerini güncelle — F3 menasını kapat
-  const allPlayers: PlayerMp[] = (mp.players as any).toArray ? (mp.players as any).toArray() : [];
-  const targetPlayer = allPlayers.find((p: PlayerMp) => (p as any).characterId === targetCharId);
+  const targetPlayer = onlineCharacters.get(targetCharId) ?? null;
   if (targetPlayer && isPlayerValid(targetPlayer)) {
     targetPlayer.setVariable('faction_id', null);
     targetPlayer.setVariable('faction_rank', 0);
     (targetPlayer as any).factionId   = null;
     (targetPlayer as any).factionRank = 0;
+    unregisterPlayerFactionOnline(targetPlayer, factionId);
     targetPlayer.call('client:closeFactionUI', []);
     targetPlayer.call('chat:push', ['!{#ef4444}[BİRLİK] Birlikten atıldınız.']);
   }  player.call('chat:push', ['!{#34d399}[BİRLİK] Üye birlikten atıldı.']);
@@ -379,10 +412,10 @@ safeEvent('server:faction:acceptOffer', async (player: PlayerMp, offerId: string
       player.setVariable('faction_rank', lowestRank);
       (player as any).factionId   = offer.factionId;
       (player as any).factionRank = lowestRank;
+      registerPlayerFactionOnline(player, offer.factionId);
       player.call('chat:push', [`!{#34d399}[BİRLİK] "${offer.factionName}" birliğine katıldınız!`]);
-      // Davet edeni bilgilendir
-      const allPlayers: PlayerMp[] = (mp.players as any).toArray ? (mp.players as any).toArray() : [];
-      const inviter = allPlayers.find((p: PlayerMp) => (p as any).characterId === offer.inviterCharId);
+      // Davet edeni bilgilendir — O(1) Map lookup
+      const inviter = onlineCharacters.get(offer.inviterCharId) ?? null;
       if (inviter && isPlayerValid(inviter)) {
         inviter.call('chat:push', [`!{#34d399}[BİRLİK] Davet ettiğiniz oyuncu birliğe katıldı.`]);
       }
@@ -412,6 +445,7 @@ safeEvent('server:faction:leaveFaction', async (player: PlayerMp, factionId: num
   player.setVariable('faction_rank', 0);
   (player as any).factionId   = null;
   (player as any).factionRank = 0;
+  unregisterPlayerFactionOnline(player, factionId);
   player.call('client:closeFactionUI', []);
   player.call('chat:push', ['!{#fbbf24}[BİRLİK] Birlikten ayrıldınız.']);
   broadcastToFaction(factionId, { members: await fetchFactionMembers(factionId) });
@@ -487,5 +521,11 @@ export function initFactionManager(): void {
   factionManager.loadAllFactions().catch((err) =>
     console.error('[FACTION] loadAllFactions hatası:', err)
   );
+  // Oyuncu bağlantısı kesildiğinde birlik online cache'ini ve cooldown kaydını temizle
+  mp.events.add('playerQuit', (player: PlayerMp) => {
+    const factionId = player.getVariable('faction_id') as number | null | undefined;
+    if (factionId) unregisterPlayerFactionOnline(player, factionId);
+    factionRequestCooldowns.delete(player.id);
+  });
   console.log('[SERVER] Faction Manager başlatıldı.');
 }

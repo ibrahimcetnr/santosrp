@@ -324,45 +324,70 @@ function initHUD() {
     } catch {
     }
   });
+  const VFLAG_ENGINE = 1;
+  const VFLAG_LOCKED = 1 << 1;
+  const VFLAG_SEATBELT = 1 << 2;
+  let vehicleFlags = 0;
+  let flagsDirty = false;
   let lastVehicleData = {
     inVehicle: false,
     speed: -1,
-    fuel: -1,
-    engineOn: false,
-    isLocked: false,
-    seatbelt: false
+    fuel: -1
   };
   setInterval(() => {
     if (!hudActive) return;
-    try {
-      const player = mp.players.local;
-      const vehicle = player.vehicle;
-      if (!vehicle) {
-        if (lastVehicleData.inVehicle) {
-          sendToHUD("hudVehicle", { inVehicle: false });
-          lastVehicleData.inVehicle = false;
-        }
-        return;
+    const player = mp.players.local;
+    const vehicle = player.vehicle;
+    if (!vehicle) {
+      if (lastVehicleData.inVehicle) {
+        sendToHUD("chv", { inVehicle: false });
+        lastVehicleData.inVehicle = false;
+        lastVehicleData.speed = -1;
+        lastVehicleData.fuel = -1;
+        vehicleFlags = 0;
+        flagsDirty = false;
       }
-      const speed = Math.round(vehicle.getSpeed() * 3.6);
-      const fuel = vehicle.getVariable("fuel") ?? 100;
-      const engineOn = !!vehicle.getVariable("engineStatus");
-      const isLocked = !!vehicle.getVariable("lockedStatus");
-      const seatbelt = !!player.getVariable("seatbelt");
-      if (!lastVehicleData.inVehicle || lastVehicleData.speed !== speed || lastVehicleData.fuel !== fuel || lastVehicleData.engineOn !== engineOn || lastVehicleData.isLocked !== isLocked || lastVehicleData.seatbelt !== seatbelt) {
-        sendToHUD("hudVehicle", {
-          inVehicle: true,
-          speed,
-          fuel,
-          engineOn,
-          isLocked,
-          seatbelt
-        });
-        lastVehicleData = { inVehicle: true, speed, fuel, engineOn, isLocked, seatbelt };
-      }
-    } catch {
+      return;
+    }
+    const speed = Math.round(vehicle.getSpeed() * 3.6);
+    if (!lastVehicleData.inVehicle || lastVehicleData.speed !== speed) {
+      sendToHUD("chv", { inVehicle: true, speed });
+      lastVehicleData.inVehicle = true;
+      lastVehicleData.speed = speed;
+    }
+    if (flagsDirty) {
+      sendToHUD("chv", { f: vehicleFlags });
+      flagsDirty = false;
     }
   }, 100);
+  mp.events.addDataHandler("fuel", (entity, value) => {
+    if (!hudActive) return;
+    if (entity !== mp.players.local.vehicle) return;
+    const fuel = value ?? 100;
+    if (lastVehicleData.fuel === fuel) return;
+    lastVehicleData.fuel = fuel;
+    sendToHUD("chv", { fuel });
+  });
+  mp.events.addDataHandler("engineStatus", (entity, value) => {
+    if (!hudActive) return;
+    if (entity !== mp.players.local.vehicle) return;
+    if (value) vehicleFlags |= VFLAG_ENGINE;
+    else vehicleFlags &= ~VFLAG_ENGINE;
+    flagsDirty = true;
+  });
+  mp.events.addDataHandler("lockedStatus", (entity, value) => {
+    if (!hudActive) return;
+    if (entity !== mp.players.local.vehicle) return;
+    if (value) vehicleFlags |= VFLAG_LOCKED;
+    else vehicleFlags &= ~VFLAG_LOCKED;
+    flagsDirty = true;
+  });
+  mp.events.addDataHandler("seatbelt", (entity, value) => {
+    if (!hudActive || entity.type !== "player" || entity !== mp.players.local) return;
+    if (value) vehicleFlags |= VFLAG_SEATBELT;
+    else vehicleFlags &= ~VFLAG_SEATBELT;
+    flagsDirty = true;
+  });
 }
 
 // src/client/nametags.ts
@@ -374,6 +399,7 @@ var PlayerData = class {
     __publicField(this, "lastCheck", 0);
     __publicField(this, "charName", "Bilinmeyen");
     __publicField(this, "isTyping", false);
+    __publicField(this, "displayString", "Bilinmeyen");
   }
 };
 var playerCache = /* @__PURE__ */ new Map();
@@ -402,6 +428,7 @@ function initNametags() {
     if (entity.type === "player") {
       const data = getOrCreateData(entity.remoteId);
       data.charName = value;
+      data.displayString = data.charName + " (" + entity.remoteId + ")";
     }
   });
   mp.events.addDataHandler("isTyping", (entity, value) => {
@@ -444,19 +471,25 @@ mp.events.add("render", () => {
     const tPos = target.position;
     const dx = tPos.x - localPos.x;
     const dy = tPos.y - localPos.y;
-    if (dx * dx + dy * dy <= MAX_DIST_SQ) {
+    const distSq2d = dx * dx + dy * dy;
+    if (distSq2d <= MAX_DIST_SQ) {
       const targetHead = target.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
       const localHead = local.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
       const screenTest = mp.game.graphics.world3dToScreen2d(targetHead.x, targetHead.y, targetHead.z);
       const cacheData = getOrCreateData(target.remoteId);
       cacheData.lastCheck = now;
       if (screenTest) {
-        cacheData.visible = !mp.raycasting.testPointToPoint(localHead, targetHead, [local.handle, target.handle], 19);
+        if (distSq2d < 225) {
+          cacheData.visible = !mp.raycasting.testPointToPoint(localHead, targetHead, [local.handle, target.handle], 19);
+        } else {
+          cacheData.visible = true;
+        }
       } else {
         cacheData.visible = false;
       }
     }
   }
+  let drawCount = 0;
   for (let i = 0; i < len; i++) {
     const player = streamedArray[i];
     if (player === local || !player.handle || player.alpha === 0) continue;
@@ -466,6 +499,7 @@ mp.events.add("render", () => {
       const newData = getOrCreateData(pId);
       newData.charName = player.getVariable("characterName") || player.name;
       newData.isTyping = player.getVariable("isTyping") || false;
+      newData.displayString = newData.charName + " (" + pId + ")";
       continue;
     }
     if (!cache.visible) continue;
@@ -478,14 +512,13 @@ mp.events.add("render", () => {
     let drawX = pPos.x;
     let drawY = pPos.y;
     let drawZ = pPos.z + 1.2;
-    try {
+    if (player && player.handle !== 0 && mp.players.exists(player)) {
       const boneCoords = player.getBoneCoords(HEAD_BONE_ID, 0, 0, 0);
       if (boneCoords && boneCoords.z !== 0) {
         drawX = boneCoords.x;
         drawY = boneCoords.y;
         drawZ = boneCoords.z + 0.5;
       }
-    } catch (e) {
     }
     const screen = mp.game.graphics.world3dToScreen2d(drawX, drawY, drawZ);
     if (!screen) continue;
@@ -494,13 +527,14 @@ mp.events.add("render", () => {
     sharedScreenPos[1] = screen.y;
     sharedTextOpts.scale[0] = scale;
     sharedTextOpts.scale[1] = scale;
-    mp.game.graphics.drawText(`${cache.charName} (${pId})`, sharedScreenPos, sharedTextOpts);
+    mp.game.graphics.drawText(cache.displayString, sharedScreenPos, sharedTextOpts);
     if (cache.isTyping) {
       sharedScreenPos[1] -= 0.035;
       sharedTypingOpts.scale[0] = scale * 0.8;
       sharedTypingOpts.scale[1] = scale * 0.8;
       mp.game.graphics.drawText("* Yaz\u0131yor...", sharedScreenPos, sharedTypingOpts);
     }
+    if (++drawCount >= 30) break;
   }
 });
 
@@ -922,6 +956,25 @@ function initCreator() {
 }
 
 // src/client/index.ts
+var activeBlips = /* @__PURE__ */ new Set();
+setInterval(() => {
+  if (activeBlips.size === 0) return;
+  const now = Date.now();
+  const pPos = mp.players.local.position;
+  for (const entry of activeBlips) {
+    const dx = pPos.x - entry.x;
+    const dy = pPos.y - entry.y;
+    const dz = pPos.z - entry.z;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    if (distSq < 900 || now >= entry.expiresAt) {
+      try {
+        entry.blip.destroy();
+      } catch {
+      }
+      activeBlips.delete(entry);
+    }
+  }
+}, 2e3);
 mp.gui.chat.activate(false);
 mp.gui.chat.show(false);
 mp.game.ui.displayHud(false);
@@ -980,7 +1033,8 @@ mp.events.addDataHandler("engine", (entity, eStatus) => {
 });
 mp.events.add("render", () => {
   const player = mp.players.local;
-  if (mp.game.invoke("0x475768A975D5AD17", player.handle, 6)) {
+  const veh = player.vehicle;
+  if (mp.game.weapon.isPedArmed(player.handle, 6)) {
     mp.game.controls.disableControlAction(0, 140, true);
     mp.game.controls.disableControlAction(0, 141, true);
     mp.game.controls.disableControlAction(0, 142, true);
@@ -990,25 +1044,24 @@ mp.events.add("render", () => {
     mp.game.controls.disableControlAction(0, 200, true);
   }
   mp.game.controls.disableControlAction(0, 36, true);
-  if (player.vehicle) {
+  if (veh) {
     mp.game.controls.disableControlAction(0, 19, true);
     mp.game.controls.disableControlAction(0, 20, true);
     mp.game.controls.disableControlAction(0, 134, true);
     if (cruiseActive) {
-      if (!player.vehicle.engine) {
+      if (!veh.engine) {
         cruiseActive = false;
       } else if (mp.game.controls.isControlPressed(0, 72) || mp.game.controls.isControlPressed(0, 76)) {
         cruiseActive = false;
         mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Fren alg\u0131land\u0131 \u2014 devre d\u0131\u015F\u0131.");
       } else {
-        try {
+        if (mp.vehicles.exists(veh)) {
           mp.game.controls.disableControlAction(0, 71, true);
-          const cur = player.vehicle.getSpeed();
+          const cur = veh.getSpeed();
           const diff = cruiseTargetSpeed - cur;
           if (diff > 0.3) {
             mp.game.controls.setControlNormal(0, 71, Math.min(diff * 0.6, 1));
           }
-        } catch {
         }
       }
     }
@@ -1088,26 +1141,31 @@ mp.events.add("entityStreamIn", (entity) => {
       entity.setIndicatorLights(1, indLeft);
       entity.setIndicatorLights(0, indRight);
     }
-    for (let i = 0; i <= 5; i++) {
-      try {
-        if (entity.getVariable(`door_${i}`)) {
-          entity.setDoorOpen(i, false, true);
-        } else {
-          entity.setDoorShut(i, true);
+    const streamVehicle = entity;
+    const streamDelay = 100 + Math.random() * 400;
+    setTimeout(() => {
+      if (!mp.vehicles.exists(streamVehicle)) return;
+      for (let i = 0; i <= 5; i++) {
+        try {
+          if (streamVehicle.getVariable(`door_${i}`)) {
+            streamVehicle.setDoorOpen(i, false, true);
+          } else {
+            streamVehicle.setDoorShut(i, true);
+          }
+        } catch (err) {
         }
-      } catch (err) {
       }
-    }
-    for (let i = 0; i <= 3; i++) {
-      try {
-        if (entity.getVariable(`window_${i}`)) {
-          entity.rollDownWindow(i);
-        } else {
-          entity.rollUpWindow(i);
+      for (let i = 0; i <= 3; i++) {
+        try {
+          if (streamVehicle.getVariable(`window_${i}`)) {
+            streamVehicle.rollDownWindow(i);
+          } else {
+            streamVehicle.rollUpWindow(i);
+          }
+        } catch (err) {
         }
-      } catch (err) {
       }
-    }
+    }, streamDelay);
   }
 });
 mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
@@ -1118,34 +1176,7 @@ mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
       scale: 1,
       shortRange: false
     });
-    let removed = false;
-    let timeoutHandle;
-    const removeBlip = () => {
-      if (removed) return;
-      removed = true;
-      try {
-        blip.destroy();
-      } catch {
-      }
-      clearInterval(proximityCheck);
-      clearTimeout(timeoutHandle);
-    };
-    const proximityCheck = setInterval(() => {
-      if (!blip) {
-        removeBlip();
-        return;
-      }
-      try {
-        const pPos = mp.players.local.position;
-        const dist = Math.sqrt(
-          Math.pow(pPos.x - x, 2) + Math.pow(pPos.y - y, 2) + Math.pow(pPos.z - z, 2)
-        );
-        if (dist < 30) removeBlip();
-      } catch {
-        removeBlip();
-      }
-    }, 2e3);
-    timeoutHandle = setTimeout(removeBlip, 6e4);
+    activeBlips.add({ blip, x, y, z, expiresAt: Date.now() + 6e4 });
   } catch {
   }
 });
