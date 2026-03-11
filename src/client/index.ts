@@ -6,6 +6,7 @@ import { registerClientAuthEvents } from './auth';
 import { initHUD } from './hud';
 import { initNametags } from './nametags';
 import { initFaction } from './faction';
+import { initScrollMenu } from './scrollMenu';
 
 // RAGE native chat'i en erken anda kapat — "Multiplayer Started" mesajını engeller
 mp.gui.chat.activate(false);
@@ -47,6 +48,9 @@ initNametags();
 
 // Birlik sistemini başlat
 initFaction();
+
+// Scroll (etkileşim) menüsünü başlat
+initScrollMenu();
 
 mp.events.add('browserCreated', (browser: BrowserMp) => {
   console.log('[CLIENT] Browser oluşturuldu.');

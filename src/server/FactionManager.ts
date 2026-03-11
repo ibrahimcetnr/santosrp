@@ -32,7 +32,7 @@ class FactionManager {
   /** DB'den tüm birlikleri çekip cache'e yükler */
   async loadAllFactions(): Promise<void> {
     const res = await query(
-  'SELECT id, name, type, approvals, stock_value, founder_id, tasks, ranks, divisions, brokerFee FROM factions'
+  'SELECT id, name, type, approvals, stock_value, founder_id, tasks, ranks, divisions, brokerFee, balance, description, chat_enabled FROM factions'
 );
     this.factions.clear();
 
@@ -44,6 +44,9 @@ class FactionManager {
       row['ranks']     = safeParse<unknown[]>(row['ranks'],     []);
       row['divisions'] = safeParse<unknown[]>(row['divisions'], []);
       row['approvals'] = safeParse<Record<string, boolean>>(row['approvals'], {});
+      row['balance']     = Number(row['balance']) || 0;
+      row['description'] = (row['description'] as string) || 'Bu birliğin henüz bir açıklaması bulunmuyor.';
+      row['chatEnabled']  = row['chat_enabled'] !== false;
       // members artık characters tablosundan dinamik çekildiğinden cache'e almayız
 
       const id = row['id'] as number;
@@ -75,6 +78,36 @@ interface PendingOffer {
 const pendingOffers = new Map<string, PendingOffer>();
 
 export const factionManager = new FactionManager();
+
+// ─── Yardımcı: birlik üyelerini DB'den çek ───────────────────────────────────
+async function fetchFactionMembers(factionId: number): Promise<Record<string, unknown>[]> {
+  const raw = await query(
+    'SELECT id, first_name, last_name, faction_rank, faction_division FROM characters WHERE faction_id = $1',
+    [factionId]
+  );
+  return raw.rows.map((r: Record<string, unknown>) => {
+    const c = rowToCamel(r);
+    return {
+      id:       c['id'],
+      name:     `${c['firstName']} ${c['lastName']}`,
+      rank:     c['factionRank'],
+      division: c['factionDivision'],
+    };
+  });
+}
+
+// ─── Yardımcı: paneli açık birlik üyelerine patch yayınla ────────────────────
+function broadcastToFaction(factionId: number, patch: Record<string, unknown>): void {
+  const patchJson = JSON.stringify(patch);
+  const allPlayers: PlayerMp[] = (mp.players as any).toArray ? (mp.players as any).toArray() : [];
+  for (const p of allPlayers) {
+    try {
+      if (isPlayerValid(p) && (p.getVariable('faction_id') as number | null | undefined) === factionId) {
+        p.call('client:faction:liveUpdate', [patchJson]);
+      }
+    } catch {}
+  }
+}
 
 // ─── server:requestFactionData — İstemci F3'e bastığında çağrılır ────────────
 safeEvent('server:requestFactionData', async (player: PlayerMp) => {
@@ -191,8 +224,9 @@ safeEvent('server:faction:inviteMember', async (player: PlayerMp, factionId: num
 
 // ─── server:faction:kickMember — Üye at ──────────────────────────────────────
 safeEvent('server:faction:kickMember', async (player: PlayerMp, factionId: number, targetCharId: number) => {
-  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
-  await query(
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;  // Kendi kendini atamazsın
+  const myCharId = (player as any).characterId as number | undefined;
+  if (myCharId && myCharId === targetCharId) return;  await query(
     'UPDATE characters SET faction_id = NULL, faction_rank = 0, faction_division = 0 WHERE id = $1 AND faction_id = $2',
     [targetCharId, factionId]
   );  // Çevrimiçi oyuncunun hafıza değişkenlerini güncelle — F3 menasını kapat
@@ -206,6 +240,7 @@ safeEvent('server:faction:kickMember', async (player: PlayerMp, factionId: numbe
     targetPlayer.call('client:closeFactionUI', []);
     targetPlayer.call('chat:push', ['!{#ef4444}[BİRLİK] Birlikten atıldınız.']);
   }  player.call('chat:push', ['!{#34d399}[BİRLİK] Üye birlikten atıldı.']);
+  broadcastToFaction(factionId, { members: await fetchFactionMembers(factionId) });
 });
 
 // ─── server:faction:editMemberRank — Üye rütbesi güncelle ────────────────────
@@ -215,10 +250,20 @@ safeEvent('server:faction:editMemberRank', async (player: PlayerMp, factionId: n
   const ranks   = (faction?.['ranks'] as any[] | undefined) ?? [];
   const rankNum = Number(newRank);
   if (!ranks.some((r: any) => Number(r.id) === rankNum)) return; // geçersiz rütbe
+  // Kendi rütbesini düzenleyemez
+  const myCharId = (player as any).characterId as number | undefined;
+  if (myCharId && myCharId === targetCharId) return;
+  // Kendi rütbesinden daha yetkili birini atayamaz (1 = en yüksek yetki)
+  const playerRank = (player.getVariable('faction_rank') as number | null | undefined) ?? 999;
+  if (rankNum < playerRank) {
+    player.call('chat:push', ['!{#ef4444}[BİRLİK] Kendinizden yetkili bir rütbe atayamazsınız.']);
+    return;
+  }
   await query(
     'UPDATE characters SET faction_rank = $1 WHERE id = $2 AND faction_id = $3',
     [rankNum, targetCharId, factionId]
   );
+  broadcastToFaction(factionId, { members: await fetchFactionMembers(factionId) });
 });
 
 // ─── server:faction:editMemberDivision — Üye divizyonu güncelle ──────────────
@@ -232,6 +277,7 @@ safeEvent('server:faction:editMemberDivision', async (player: PlayerMp, factionI
     'UPDATE characters SET faction_division = $1 WHERE id = $2 AND faction_id = $3',
     [divNum, targetCharId, factionId]
   );
+  broadcastToFaction(factionId, { members: await fetchFactionMembers(factionId) });
 });
 
 // ─── server:faction:updateRankCount — Rütbe sayısını güncelle (DB + cache) ───
@@ -243,6 +289,7 @@ safeEvent('server:faction:updateRankCount', async (player: PlayerMp, factionId: 
   await query('UPDATE factions SET ranks = $1 WHERE id = $2', [JSON.stringify(ranks), factionId]);
   const faction = factionManager.getFaction(factionId);
   if (faction) faction['ranks'] = ranks;
+  broadcastToFaction(factionId, { ranks });
 });
 
 // ─── server:faction:updateDivisionCount — Divizyon sayısını güncelle ─────────
@@ -254,6 +301,7 @@ safeEvent('server:faction:updateDivisionCount', async (player: PlayerMp, faction
   await query('UPDATE factions SET divisions = $1 WHERE id = $2', [JSON.stringify(divisions), factionId]);
   const faction = factionManager.getFaction(factionId);
   if (faction) faction['divisions'] = divisions;
+  broadcastToFaction(factionId, { divisions });
 });
 
 // ─── server:faction:updateRankName — Rütbe adı güncelle ─────────────────────
@@ -268,6 +316,23 @@ safeEvent('server:faction:updateRankName', async (player: PlayerMp, factionId: n
   if (!trimmed) return;
   rank.name = trimmed;
   await query('UPDATE factions SET ranks = $1 WHERE id = $2', [JSON.stringify(ranks), factionId]);
+  broadcastToFaction(factionId, { ranks });
+});
+
+// ─── server:faction:updateRankPermissions — Rütbe izinleri güncelle ──────────
+safeEvent('server:faction:updateRankPermissions', async (player: PlayerMp, factionId: number, rankId: number, permissionsJson: string) => {
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
+  const faction = factionManager.getFaction(factionId);
+  if (!faction) return;
+  let permissions: string[];
+  try { permissions = JSON.parse(permissionsJson); } catch { return; }
+  if (!Array.isArray(permissions)) return;
+  const ranks = (faction['ranks'] as any[]);
+  const rank  = ranks.find((r: any) => Number(r.id) === Number(rankId));
+  if (!rank) return;
+  rank.permissions = permissions;
+  await query('UPDATE factions SET ranks = $1 WHERE id = $2', [JSON.stringify(ranks), factionId]);
+  broadcastToFaction(factionId, { ranks });
 });
 
 // ─── server:faction:updateDivisionName — Divizyon adı güncelle ──────────────
@@ -282,6 +347,7 @@ safeEvent('server:faction:updateDivisionName', async (player: PlayerMp, factionI
   if (!trimmed) return;
   div.name = trimmed;
   await query('UPDATE factions SET divisions = $1 WHERE id = $2', [JSON.stringify(divisions), factionId]);
+  broadcastToFaction(factionId, { divisions });
 });
 
 // ─── server:faction:acceptOffer — Teklifi kabul et ───────────────────────────
@@ -297,16 +363,22 @@ safeEvent('server:faction:acceptOffer', async (player: PlayerMp, offerId: string
   if (offer.type === 'faction_invite') {
     const characterId = (player as any).characterId;
     if (!characterId) return;
+    // En düşük rütbeyi bul (id sayısı en büyük olan = en az yetkili)
+    const joinFaction = factionManager.getFaction(offer.factionId);
+    const joinRanks   = (joinFaction?.['ranks'] as any[] | undefined) ?? [];
+    const lowestRank  = joinRanks.length > 0
+      ? Math.max(...joinRanks.map((r: any) => Number(r.id)))
+      : 1;
     const result = await query(
-      'UPDATE characters SET faction_id = $1, faction_rank = 1, faction_division = 0 WHERE id = $2 AND (faction_id IS NULL OR faction_id != $1)',
-      [offer.factionId, characterId]
+      'UPDATE characters SET faction_id = $1, faction_rank = $2, faction_division = 0 WHERE id = $3 AND (faction_id IS NULL OR faction_id != $1)',
+      [offer.factionId, lowestRank, characterId]
     );
     const affected = (result as any).rowCount ?? 0;
     if (affected > 0) {
       player.setVariable('faction_id',   offer.factionId);
-      player.setVariable('faction_rank', 1);
+      player.setVariable('faction_rank', lowestRank);
       (player as any).factionId   = offer.factionId;
-      (player as any).factionRank = 1;
+      (player as any).factionRank = lowestRank;
       player.call('chat:push', [`!{#34d399}[BİRLİK] "${offer.factionName}" birliğine katıldınız!`]);
       // Davet edeni bilgilendir
       const allPlayers: PlayerMp[] = (mp.players as any).toArray ? (mp.players as any).toArray() : [];
@@ -314,6 +386,7 @@ safeEvent('server:faction:acceptOffer', async (player: PlayerMp, offerId: string
       if (inviter && isPlayerValid(inviter)) {
         inviter.call('chat:push', [`!{#34d399}[BİRLİK] Davet ettiğiniz oyuncu birliğe katıldı.`]);
       }
+      broadcastToFaction(offer.factionId, { members: await fetchFactionMembers(offer.factionId) });
     } else {
       player.call('chat:push', ['!{#fbbf24}[BİRLİK] Zaten bir birliğe üye olduğunuz için bu daveti kabul edemezsiniz.']);
     }
@@ -324,6 +397,90 @@ safeEvent('server:faction:acceptOffer', async (player: PlayerMp, offerId: string
 safeEvent('server:faction:rejectOffer', async (player: PlayerMp, offerId: string) => {
   if (!isPlayerValid(player)) return;
   pendingOffers.delete(offerId);
+});
+
+// ─── server:faction:leaveFaction — Birlikten ayrıl ──────────────────────────────
+safeEvent('server:faction:leaveFaction', async (player: PlayerMp, factionId: number) => {
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
+  const characterId = (player as any).characterId as number | undefined;
+  if (!characterId) return;
+  await query(
+    'UPDATE characters SET faction_id = NULL, faction_rank = 0, faction_division = 0 WHERE id = $1 AND faction_id = $2',
+    [characterId, factionId]
+  );
+  player.setVariable('faction_id', null);
+  player.setVariable('faction_rank', 0);
+  (player as any).factionId   = null;
+  (player as any).factionRank = 0;
+  player.call('client:closeFactionUI', []);
+  player.call('chat:push', ['!{#fbbf24}[BİRLİK] Birlikten ayrıldınız.']);
+  broadcastToFaction(factionId, { members: await fetchFactionMembers(factionId) });
+});
+
+// ─── server:faction:treasuryDeposit — Kasaya para at ────────────────────────
+safeEvent('server:faction:treasuryDeposit', async (player: PlayerMp, factionId: number, amount: number) => {
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
+  const amt = Math.floor(Number(amount));
+  if (isNaN(amt) || amt <= 0) return;
+  const characterId = (player as any).characterId as number | undefined;
+  if (!characterId) return;
+  // Oyuncunun paranı kontrol et
+  const charRow = await query('SELECT money FROM characters WHERE id = $1', [characterId]);
+  const playerMoney = Number(charRow.rows[0]?.money ?? 0);
+  if (playerMoney < amt) {
+    player.call('chat:push', ['!{#ef4444}[BİRLİK KASASI] Yeterli paranız yok.']);
+    return;
+  }
+  await query('UPDATE characters SET money = money - $1 WHERE id = $2', [amt, characterId]);
+  await query('UPDATE factions SET balance = balance + $1 WHERE id = $2', [amt, factionId]);
+  const faction = factionManager.getFaction(factionId);
+  if (faction) faction['balance'] = (Number(faction['balance']) || 0) + amt;
+  player.call('chat:push', [`!{#34d399}[BİRLİK KASASI] ₺${amt.toLocaleString()} birlik kasasına yatırıldı.`]);
+  broadcastToFaction(factionId, { balance: faction?.['balance'] });
+});
+
+// ─── server:faction:treasuryWithdraw — Kasadan para çek ──────────────────────
+safeEvent('server:faction:treasuryWithdraw', async (player: PlayerMp, factionId: number, amount: number) => {
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
+  const amt = Math.floor(Number(amount));
+  if (isNaN(amt) || amt <= 0) return;
+  const faction = factionManager.getFaction(factionId);
+  const currentBalance = Number(faction?.['balance'] ?? 0);
+  if (amt > currentBalance) {
+    player.call('chat:push', ['!{#ef4444}[BİRLİK KASASI] Kasada yeterli bakiye yok.']);
+    return;
+  }
+  const characterId = (player as any).characterId as number | undefined;
+  if (!characterId) return;
+  await query('UPDATE factions SET balance = balance - $1 WHERE id = $2', [amt, factionId]);
+  await query('UPDATE characters SET money = money + $1 WHERE id = $2', [amt, characterId]);
+  if (faction) faction['balance'] = currentBalance - amt;
+  player.call('chat:push', [`!{#34d399}[BİRLİK KASASI] ₺${amt.toLocaleString()} kasadan çekildi.`]);
+  broadcastToFaction(factionId, { balance: faction?.['balance'] });
+});
+
+// ─── server:faction:setChatEnabled — F Chat aç/kapat ───────────────────────────
+safeEvent('server:faction:setChatEnabled', async (player: PlayerMp, factionId: number, enabled: boolean) => {
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
+  // Sadece en yüksek rütbe (1) yapabilir
+  const playerRank = (player.getVariable('faction_rank') as number | null | undefined) ?? 999;
+  if (playerRank !== 1) return;
+  await query('UPDATE factions SET chat_enabled = $1 WHERE id = $2', [enabled, factionId]);
+  const faction = factionManager.getFaction(factionId);
+  if (faction) faction['chatEnabled'] = enabled;
+  broadcastToFaction(factionId, { chatEnabled: enabled });
+});
+
+// ─── server:faction:updateDescription — Açıklama güncelle ───────────────────────
+safeEvent('server:faction:updateDescription', async (player: PlayerMp, factionId: number, newDesc: string) => {
+  if (!isPlayerValid(player) || !isMemberOf(player, factionId)) return;
+  const playerRank = (player.getVariable('faction_rank') as number | null | undefined) ?? 999;
+  if (playerRank !== 1) return;
+  const trimmed = String(newDesc).trim().slice(0, 500);
+  await query('UPDATE factions SET description = $1 WHERE id = $2', [trimmed, factionId]);
+  const faction = factionManager.getFaction(factionId);
+  if (faction) faction['description'] = trimmed;
+  broadcastToFaction(factionId, { description: trimmed });
 });
 
 export function initFactionManager(): void {

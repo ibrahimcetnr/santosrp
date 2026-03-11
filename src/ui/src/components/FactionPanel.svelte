@@ -102,18 +102,21 @@
 
   const GHOST_TASKS = [
     { name: 'Yeni Ufuklar',     description: 'Gelecek görev planlanıyor...' },
-    { name: 'Bilinmeyen Hedef', description: 'Gizli direktif bekleniyor...' },
-    { name: 'İlerleme Yolu',    description: 'Koordinatlar henüz belirlenmedi...' },
   ];
 
-  const tabs = [
+  const myCharId = $derived(factionData._playerContext?.characterId ?? -1);
+  let settingsDesc = $state((factionData.description as string) || '');
+
+  const tabs = $derived([
     { id: 'info',      label: 'Bilgiler',         icon: '◈' },
     { id: 'story',     label: 'Hikaye Ağacı',      icon: '◉' },
     { id: 'members',   label: 'Üyeler',            icon: '◎' },
     { id: 'ranks',     label: 'Rütbeler',          icon: '◇' },
     { id: 'divisions', label: 'Divizyonlar',       icon: '◈' },
-    { id: 'vehicles',  label: 'Araçlar / Mülkler', icon: '◆' },
-  ];
+    { id: 'treasury',  label: 'Birlik Kasası',     icon: '◆' },
+    { id: 'vehicles',  label: 'Araçlar / Mülkler', icon: '◇' },
+    ...(factionData._playerContext?.factionRank === 1 ? [{ id: 'settings', label: 'Ayarlar', icon: '⚙' }] : []),
+  ]);
 
   function close() {
     if (onClose) onClose();
@@ -125,37 +128,67 @@
     }
   }
 
-  // ── Sıralanmış üye listesi (rütbe 1 = en yüksek) ──────────────────
-  const sortedMembers = $derived(
-    [...(factionData.members || [])].sort((a: any, b: any) => (a.rank ?? 999) - (b.rank ?? 999))
-  );
-
-  // ── Yerel rütbe/divizyon listeleri (lokal düzenleme için) ────────────────
+  // ── Yerel üye/rütbe/divizyon listeleri ─────────────────────────────────
+  let localMembers   = $state<any[]>([...(factionData.members   || [])]);
   let localRanks     = $state<any[]>([...(factionData.ranks     || [])]);
   let localDivisions = $state<any[]>([...(factionData.divisions || [])]);
+
+  // ── Sıralanmış üye listesi (rütbe 1 = en yüksek) ──────────────────
+  const sortedMembers = $derived(
+    [...localMembers].sort((a: any, b: any) => (a.rank ?? 999) - (b.rank ?? 999))
+  );
 
   // ── Inline isim düzenleme tracking ─────────────────────────────────────
   let rankNameEdits = $state<Record<number, string>>({});
   let divNameEdits  = $state<Record<number, string>>({});
 
   $effect(() => {
-    // Prop değiştiğinde (panel yeniden açıldığında) senkronize et
+    // Prop değiştiğinde (patchFactionUI veya panel yeniden açıldığında) senkronize et
+    localMembers   = [...(factionData.members   || [])];
     localRanks     = [...(factionData.ranks     || [])];
     localDivisions = [...(factionData.divisions || [])];
   });
 
+  // ── Rütbe yetki izinleri sabit listesi ─────────────────────────────────────
+  const RANK_PERMISSIONS = [
+    { id: 'treasury_deposit',  label: 'Birlik Kasasına Para Atma' },
+    { id: 'treasury_withdraw', label: 'Birlik Kasasından Para Alma' },
+    { id: 'member_manage',     label: 'Üye At / Üye Al' },
+    { id: 'rank_edit',         label: 'Rütbe Düzenle' },
+    { id: 'division_edit',     label: 'Divizyon Düzenle' },
+    { id: 'broker',            label: 'Simsar Hakkı Kullanma' },
+    { id: 'faction_chat',      label: 'F Chat Kullanma' },
+    { id: 'salary_edit',       label: 'Maaş Düzenleme' },
+    { id: 'asset_add',         label: 'Araç/Mülk Ekleme' },
+    { id: 'asset_use',         label: 'Araç/Mülk Kullanma' },
+    { id: 'description_edit',  label: 'Birlik Açıklaması Düzenleme' },
+  ];
+
   // ── Modal state ───────────────────────────────────────────────────────────
-  type ModalMode = 'invite' | 'rankCount' | 'divisionCount' | 'editRank' | 'editDivision' | 'kickConfirm' | null;
+  type ModalMode = 'invite' | 'rankCount' | 'divisionCount' | 'editRank' | 'editDivision' | 'kickConfirm' | 'rankPermissions' | 'leaveConfirm' | 'deposit' | 'withdraw' | null;
   let modalMode     = $state<ModalMode>(null);
   let modalValue    = $state('');
   let modalError    = $state('');
   let editingMember = $state<any>(null);
+  let editingRank   = $state<any>(null);
+  let permChecked   = $state<Record<string, boolean>>({});
 
-  function openModal(mode: ModalMode, member: any = null) {
+  function openModal(mode: ModalMode, data: any = null) {
     modalMode     = mode;
     modalValue    = '';
     modalError    = '';
-    editingMember = member;
+    if (mode === 'rankPermissions') {
+      editingRank   = data;
+      editingMember = null;
+      const existing: string[] = Array.isArray(data?.permissions) ? data.permissions : [];
+      const checked: Record<string, boolean> = {};
+      for (const p of RANK_PERMISSIONS) checked[p.id] = existing.includes(p.id);
+      permChecked = checked;
+    } else {
+      editingMember = data;
+      editingRank   = null;
+      permChecked   = {};
+    }
   }
 
   function closeModal() {
@@ -163,6 +196,8 @@
     modalValue    = '';
     modalError    = '';
     editingMember = null;
+    editingRank   = null;
+    permChecked   = {};
   }
 
   // ── Rütbe sayısı uygula: 1–15, fazlaysa boş slot ekle / eksikse son sil ──
@@ -236,18 +271,54 @@
         break;
       case 'editRank': {
         if (!modalValue) { modalError = 'Bir rütbe seçin.'; return; }
-        triggerMp('client:faction:editMemberRank', factionData.id, editingMember.id, parseInt(modalValue, 10));
+        const newRankNum = parseInt(modalValue, 10);
+        triggerMp('client:faction:editMemberRank', factionData.id, editingMember.id, newRankNum);
+        // Anlık lokal güncellüme
+        localMembers = localMembers.map((m: any) => m.id === editingMember.id ? { ...m, rank: newRankNum } : m);
         closeModal();
         break;
       }
       case 'editDivision': {
         if (!modalValue) { modalError = 'Bir divizyon seçin.'; return; }
-        triggerMp('client:faction:editMemberDivision', factionData.id, editingMember.id, parseInt(modalValue, 10));
+        const newDivNum = parseInt(modalValue, 10);
+        triggerMp('client:faction:editMemberDivision', factionData.id, editingMember.id, newDivNum);
+        // Anlık lokal güncellüme
+        localMembers = localMembers.map((m: any) => m.id === editingMember.id ? { ...m, division: newDivNum } : m);
         closeModal();
         break;
       }
       case 'kickConfirm': {
         triggerMp('client:faction:kickMember', factionData.id, editingMember.id);
+        closeModal();
+        break;
+      }
+      case 'rankPermissions': {
+        const selected = RANK_PERMISSIONS.filter(p => permChecked[p.id]).map(p => p.id);
+        // Güncel localRanks içindeki rank nesnesini güncelle
+        localRanks = localRanks.map((r: any) =>
+          r.id === editingRank.id ? { ...r, permissions: selected } : r
+        );
+        triggerMp('client:faction:updateRankPermissions', factionData.id, editingRank.id, JSON.stringify(selected));
+        closeModal();
+        break;
+      }
+      case 'leaveConfirm': {
+        triggerMp('client:faction:leaveFaction', factionData.id);
+        closeModal();
+        break;
+      }
+      case 'deposit': {
+        const amount = parseInt(modalValue, 10);
+        if (isNaN(amount) || amount <= 0) { modalError = 'Geçerli bir tutar girin.'; return; }
+        triggerMp('client:faction:treasuryDeposit', factionData.id, amount);
+        closeModal();
+        break;
+      }
+      case 'withdraw': {
+        const amount = parseInt(modalValue, 10);
+        if (isNaN(amount) || amount <= 0) { modalError = 'Geçerli bir tutar girin.'; return; }
+        if (amount > (factionData.balance ?? 0)) { modalError = 'Kasada yeterli bakiye yok.'; return; }
+        triggerMp('client:faction:treasuryWithdraw', factionData.id, amount);
         closeModal();
         break;
       }
@@ -287,6 +358,12 @@
         </button>
       {/each}
     </nav>
+
+    <div class="sidebar-footer">
+      <button class="btn btn-danger leave-btn" onclick={() => openModal('leaveConfirm')}>
+        ← Birlikten Ayrıl
+      </button>
+    </div>
   </aside>
 
   <!-- ── Content ────────────────────────────────────────── -->
@@ -303,8 +380,17 @@
             <span class="info-value">{factionData.name}</span>
           </div>
           <div class="info-row">
+            <span class="info-label">Birlik Açıklaması</span>
+            <span class="info-value" style="white-space:pre-wrap; line-height:1.5;">{factionData.description || 'Bu birliğin henüz bir açıklaması bulunmuyor.'}</span>
+          </div>
+        </div>
+          <div class="info-row">
             <span class="info-label">Kurucu</span>
             <span class="info-value">{factionData.founderName}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Birlik Kasası</span>
+            <span class="info-value stock-value">₺{(factionData.balance ?? 0).toLocaleString('tr-TR')}</span>
           </div>
           <div class="info-row">
             <span class="info-label">Birlik Tipi</span>
@@ -356,7 +442,7 @@
               {/if}
             </span>
           </div>
-        </div>
+          
       </section>
 
     <!-- HİKAYE AĞACI -->
@@ -374,35 +460,16 @@
           {@const tasksLocked = (factionData.tasks || []).filter((t: any) => taskStatus(t) === 'locked')}
           <div class="story-tree">
 
-            <!-- AKTİF GÖREV — üstte hero kartı -->
-            {#if tasksActive}
-              <div class="story-active-card">
-                <div class="story-active-badge">◉ GÜNCEL GÖREV</div>
-                <div class="story-active-body">
-                  <div class="task-status-icon active">◉</div>
-                  <div class="task-body">
-                    <span class="task-name story-active-name">{tasksActive.name}</span>
-                    {#if tasksActive.description}
-                      <span class="task-desc">{tasksActive.description}</span>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-              {#if tasksDone.length > 0 || tasksLocked.length > 0 || GHOST_TASKS.length > 0}
-                <div class="story-v-line"></div>
-              {/if}
-            {/if}
-
-            <!-- TAMAMLANMIŞ GÖREVLER -->
-            {#each tasksDone as task, i}
-              <div class="story-node done">
-                <div class="story-dot done">✓</div>
+            <!-- HAYALET / SAHTE GELECEK GÖREVLER — üstte bulanık gelecek -->
+            {#each GHOST_TASKS as ghost, i}
+              <div class="story-node ghost">
+                <div class="story-dot ghost">?</div>
                 <div class="story-node-content">
-                  <span class="story-node-name done">{task.name}</span>
-                  {#if task.description}<span class="story-node-desc">{task.description}</span>{/if}
+                  <span class="story-node-name">{ghost.name}</span>
+                  <span class="story-node-desc">{ghost.description}</span>
                 </div>
               </div>
-              <div class="story-v-line done"></div>
+              <div class="story-v-line ghost"></div>
             {/each}
 
             <!-- KİLİTLİ GERÇEK GÖREVLER -->
@@ -416,17 +483,39 @@
               <div class="story-v-line ghost"></div>
             {/each}
 
-            <!-- HAYALET / SAHTE GELECEK GÖREVLER -->
-            {#each GHOST_TASKS as ghost, i}
-              <div class="story-node ghost">
-                <div class="story-dot ghost">?</div>
-                <div class="story-node-content">
-                  <span class="story-node-name">{ghost.name}</span>
-                  <span class="story-node-desc">{ghost.description}</span>
+            <!-- AKTİF GÖREV — hero kartı -->
+            {#if tasksActive}
+              {#if tasksLocked.length > 0 || GHOST_TASKS.length > 0}
+                <div class="story-v-line"></div>
+              {/if}
+              <div class="story-active-card">
+                <div class="story-active-badge">◉ GÜNCEL GÖREV</div>
+                <div class="story-active-body">
+                  <div class="task-status-icon active">◉</div>
+                  <div class="task-body">
+                    <span class="task-name story-active-name">{tasksActive.name}</span>
+                    {#if tasksActive.description}
+                      <span class="task-desc">{tasksActive.description}</span>
+                    {/if}
+                  </div>
                 </div>
               </div>
-              {#if i < GHOST_TASKS.length - 1}
-                <div class="story-v-line ghost"></div>
+              {#if tasksDone.length > 0}
+                <div class="story-v-line"></div>
+              {/if}
+            {/if}
+
+            <!-- TAMAMLANMIŞ GÖREVLER — en altta -->
+            {#each tasksDone as task, i}
+              <div class="story-node done">
+                <div class="story-dot done">✓</div>
+                <div class="story-node-content">
+                  <span class="story-node-name done">{task.name}</span>
+                  {#if task.description}<span class="story-node-desc">{task.description}</span>{/if}
+                </div>
+              </div>
+              {#if i < tasksDone.length - 1}
+                <div class="story-v-line done"></div>
               {/if}
             {/each}
 
@@ -476,6 +565,7 @@
                 <span class="member-rank-tag">{rankName(member.rank)}</span>
                 <span class="member-div">{divisionName(member.division)}</span>
                 <div class="member-actions">
+                  {#if member.id !== myCharId}
                   <button class="icon-btn has-tooltip" data-tooltip="Rütbe Düzenle" aria-label="Rütbe Düzenle"
                     onclick={() => openModal('editRank', member)}>
                     <!-- yıldız ikonu -->
@@ -502,6 +592,7 @@
                       <path d="M8 5V3h4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                   </button>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -542,7 +633,7 @@
                   <button class="inline-confirm-btn" onclick={() => saveRankName(rank.id, rankNameEdits[rank.id]!)}>✓</button>
                 {/if}
               </div>
-              <button class="btn btn-sm btn-outline">Yetkilendirme</button>
+              <button class="btn btn-sm btn-outline" onclick={() => openModal('rankPermissions', rank)}>Yetkilendirme</button>
               {#if hasSalary}
                 <div class="salary-group">
                   <label class="salary-label" for="salary-{rank.id}">Maaş (₺)</label>
@@ -625,6 +716,59 @@
           </div>
         {/if}
       </section>
+
+    <!-- BİRLİK KASASI -->
+    {:else if activeTab === 'treasury'}
+      <section class="tab-section">
+        <h2 class="tab-title">Birlik Kasası</h2>
+        <div class="treasury-balance">
+          <span class="treasury-label">Mevcut Bakiye</span>
+          <span class="treasury-amount">₺{(factionData.balance ?? 0).toLocaleString('tr-TR')}</span>
+        </div>
+        <div class="treasury-actions">
+          <button class="btn btn-success" onclick={() => openModal('deposit')}>+ Para Yatır</button>
+          <button class="btn btn-danger"  onclick={() => openModal('withdraw')}>− Para Çek</button>
+        </div>
+      </section>
+
+    <!-- AYARLAR (yalnızca en yüksek rütbe) -->
+    {:else if activeTab === 'settings'}
+      <section class="tab-section">
+        <h2 class="tab-title">Birlik Ayarları</h2>
+
+        <!-- F Chat Aç/Kapat -->
+        <div class="settings-row">
+          <div class="settings-info">
+            <span class="settings-label">F Chat</span>
+            <span class="settings-hint">Birlik üyelerinin /f komutuyla mesajlaşması</span>
+          </div>
+          <button
+            class="toggle-btn"
+            class:on={factionData.chatEnabled !== false}
+            onclick={() => triggerMp('client:faction:setChatEnabled', factionData.id, factionData.chatEnabled === false)}
+          >
+            {factionData.chatEnabled !== false ? 'Açık' : 'Kapalı'}
+          </button>
+        </div>
+
+        <!-- Açıklama Editörü -->
+        <div class="settings-row col">
+          <span class="settings-label">Birlik Açıklaması</span>
+          <textarea
+            class="desc-textarea"
+            bind:value={settingsDesc}
+            maxlength="500"
+            rows="5"
+            placeholder="Birlik açıklaması..."
+          ></textarea>
+          <button
+            class="btn btn-primary btn-sm"
+            onclick={() => triggerMp('client:faction:updateDescription', factionData.id, settingsDesc)}
+          >
+            Kaydet
+          </button>
+        </div>
+      </section>
     {/if}
 
   </main>
@@ -642,6 +786,10 @@
           {:else if modalMode === 'editRank'}Rütbe Düzenle
           {:else if modalMode === 'editDivision'}Divizyon Düzenle
           {:else if modalMode === 'kickConfirm'}Üye At
+          {:else if modalMode === 'rankPermissions'}Rütbe Yetkileri — {editingRank?.name || `Rütbe ${editingRank?.id}`}
+          {:else if modalMode === 'leaveConfirm'}Birlikten Ayrıl
+          {:else if modalMode === 'deposit'}Para Yatır
+          {:else if modalMode === 'withdraw'}Para Çek
           {/if}
         </span>
         <button class="modal-close" onclick={closeModal} aria-label="Kapat">
@@ -717,6 +865,45 @@
             </p>
           </div>
           <p class="modal-sub">Bu işlem geri alınamaz.</p>
+
+        {:else if modalMode === 'rankPermissions'}
+          <p class="modal-desc">Bu rütbenin sahip olacağı yetkileri seçin:</p>
+          <div class="perm-list">
+            {#each RANK_PERMISSIONS as perm}
+              <label class="perm-row">
+                <input
+                  type="checkbox"
+                  class="perm-checkbox"
+                  checked={permChecked[perm.id] ?? false}
+                  onchange={() => permChecked = { ...permChecked, [perm.id]: !(permChecked[perm.id] ?? false) }}
+                />
+                <span class="perm-label">{perm.label}</span>
+              </label>
+            {/each}
+          </div>
+
+        {:else if modalMode === 'leaveConfirm'}
+          <div class="kick-warn">
+            <span class="kick-icon">⚠</span>
+            <p class="modal-desc">Birlikten ayrılmak istediğinizden emin misiniz?</p>
+          </div>
+          <p class="modal-sub">Ayrıldıktan sonra rütbenizi ve tüm birlik yetkilerinizi kaybedersiniz.</p>
+
+        {:else if modalMode === 'deposit'}
+          <label class="modal-label" for="modal-input">Yatırılacak Tutar (₺)</label>
+          <input id="modal-input" class="modal-input" class:modal-input-error={modalError !== ''}
+            type="number" min="1" placeholder="0" bind:value={modalValue}
+            onkeydown={(e) => { if (e.key === 'Enter') confirmModal(); if (e.key === 'Escape') closeModal(); }}
+          />
+          <p class="modal-hint">Birlik kasası: ₺{(factionData.balance ?? 0).toLocaleString('tr-TR')}</p>
+
+        {:else if modalMode === 'withdraw'}
+          <label class="modal-label" for="modal-input">Çekilecek Tutar (₺)</label>
+          <input id="modal-input" class="modal-input" class:modal-input-error={modalError !== ''}
+            type="number" min="1" max={factionData.balance ?? 0} placeholder="0" bind:value={modalValue}
+            onkeydown={(e) => { if (e.key === 'Enter') confirmModal(); if (e.key === 'Escape') closeModal(); }}
+          />
+          <p class="modal-hint">Mevcut kasa: ₺{(factionData.balance ?? 0).toLocaleString('tr-TR')}</p>
         {/if}
 
         {#if modalError}
@@ -726,8 +913,10 @@
 
       <div class="modal-footer">
         <button class="btn btn-outline btn-sm" onclick={closeModal}>Vazgeç</button>
-        {#if modalMode === 'kickConfirm'}
-          <button class="btn btn-danger btn-sm" onclick={confirmModal}>Evet, At</button>
+        {#if modalMode === 'kickConfirm' || modalMode === 'leaveConfirm'}
+          <button class="btn btn-danger btn-sm" onclick={confirmModal}>
+            {modalMode === 'leaveConfirm' ? 'Evet, Ayrıl' : 'Evet, At'}
+          </button>
         {:else}
           <button class="btn btn-primary btn-sm" onclick={confirmModal}>Onayla</button>
         {/if}
@@ -1884,5 +2073,168 @@
 
   .has-tooltip:hover::before {
     opacity: 1;
+  }
+
+  /* ── Rank Permissions Modal ─────────────────────────────────────────────── */
+  .perm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.12) transparent;
+  }
+
+  .perm-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  .perm-row:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.1);
+  }
+
+  .perm-checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .perm-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #cbd5e1;
+  }
+
+  /* ── Sidebar footer / Leave button ──────────────────────────── */
+  .sidebar-footer {
+    padding: 12px 16px 16px;
+    margin-top: auto;
+    border-top: 1px solid rgba(255,255,255,0.04);
+  }
+  .leave-btn {
+    width: 100%;
+    font-size: 12px;
+    padding: 8px 12px;
+    justify-content: center;
+    letter-spacing: 0.02em;
+    opacity: 0.8;
+    transition: opacity 0.15s;
+  }
+  .leave-btn:hover { opacity: 1; }
+
+  /* ── Treasury tab ────────────────────────────────────────────── */
+  .treasury-balance {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 32px 0 28px;
+  }
+  .treasury-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  .treasury-amount {
+    font-size: 38px;
+    font-weight: 700;
+    color: #34d399;
+    letter-spacing: -0.02em;
+    text-shadow: 0 0 24px rgba(52,211,153,0.3);
+  }
+  .treasury-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+  .treasury-actions .btn {
+    min-width: 140px;
+    justify-content: center;
+    font-size: 13px;
+    padding: 10px 20px;
+  }
+
+  /* ── Settings tab ────────────────────────────────────────────── */
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .settings-row.col {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .settings-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .settings-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  .settings-hint {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.4;
+  }
+  .toggle-btn {
+    min-width: 72px;
+    padding: 7px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+  }
+  .toggle-btn.on {
+    background: rgba(52,211,153,0.15);
+    color: #34d399;
+    border-color: rgba(52,211,153,0.4);
+    box-shadow: 0 0 12px rgba(52,211,153,0.15);
+  }
+  .desc-textarea {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #cbd5e1;
+    font-size: 13px;
+    padding: 10px 12px;
+    resize: vertical;
+    font-family: inherit;
+    line-height: 1.5;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .desc-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+  .modal-hint {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 6px;
   }
 </style>

@@ -91,6 +91,14 @@
       isFactionPanelOpen = true;
     };
 
+    window.patchFactionUI = (patchJson: string) => {
+      if (!isFactionPanelOpen || !currentFactionData) return;
+      try {
+        const patch = JSON.parse(patchJson);
+        currentFactionData = { ...currentFactionData, ...patch };
+      } catch {}
+    };
+
     // Client'tan F3 toggle ile kapatılabilmesi için global köprü
     window.closeFactionUI = closeFactionUI;
 

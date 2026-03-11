@@ -117,3 +117,32 @@ registerCommand(
     player.outputChatBox('!{#c9a84c}╚══════════════════════════════╝');
   }
 );
+
+registerCommand(
+  {
+    name: '/f',
+    syntax: '[Mesaj]',
+    description: 'Birlik içi sohbet kanalı',
+  },
+  (player: PlayerMp, args: string[]) => {
+    if (args.length === 0) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /f [Mesaj]');
+      return;
+    }
+    const factionId = player.getVariable('faction_id') as number | null | undefined;
+    if (!factionId) {
+      player.outputChatBox('!{#ef4444}[BİRLİK] Bir birliğe üye değilsiniz.');
+      return;
+    }
+    const message  = args.join(' ').trim();
+    if (!message) return;
+    const charName = player.characterName || player.accountUsername || player.name;
+    mp.players.forEach((p: PlayerMp) => {
+      try {
+        if (isPlayerValid(p) && (p.getVariable('faction_id') as number | null | undefined) === factionId) {
+          p.outputChatBox(`!{#c2a052}[BİRLİK] ${charName}: !{#ffffff}${message}`);
+        }
+      } catch {}
+    });
+  }
+);

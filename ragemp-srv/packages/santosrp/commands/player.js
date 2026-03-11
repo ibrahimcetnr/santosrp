@@ -95,4 +95,31 @@ const safeEvent_1 = require("../utils/safeEvent");
     player.outputChatBox(`!{#c9a84c}║  !{#6366f1}[!{#22c55e}${bar}!{#6366f1}]`);
     player.outputChatBox('!{#c9a84c}╚══════════════════════════════╝');
 });
+(0, cmdHandler_1.registerCommand)({
+    name: '/f',
+    syntax: '[Mesaj]',
+    description: 'Birlik içi sohbet kanalı',
+}, (player, args) => {
+    if (args.length === 0) {
+        player.outputChatBox('!{#fbbf24}[KULLANIM] /f [Mesaj]');
+        return;
+    }
+    const factionId = player.getVariable('faction_id');
+    if (!factionId) {
+        player.outputChatBox('!{#ef4444}[BİRLİK] Bir birliğe üye değilsiniz.');
+        return;
+    }
+    const message = args.join(' ').trim();
+    if (!message)
+        return;
+    const charName = player.characterName || player.accountUsername || player.name;
+    mp.players.forEach((p) => {
+        try {
+            if ((0, safeEvent_1.isPlayerValid)(p) && p.getVariable('faction_id') === factionId) {
+                p.outputChatBox(`!{#c2a052}[BİRLİK] ${charName}: !{#ffffff}${message}`);
+            }
+        }
+        catch { }
+    });
+});
 //# sourceMappingURL=player.js.map

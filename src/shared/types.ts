@@ -145,6 +145,7 @@ export interface IFactionRank {
     id: number;
     name: string;
     salary: number;
+    permissions?: string[];
 }
 
 export interface IFactionDivision {
@@ -163,6 +164,8 @@ export interface IFaction {
     tasks: IFactionTask[];      
     ranks: IFactionRank[];      
     divisions: IFactionDivision[]; 
+    balance: number;
+    description: string;
 }
 
 // Bir birliğin ana kategorisini bulmamızı sağlayacak yardımcı fonksiyon

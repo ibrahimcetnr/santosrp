@@ -509,10 +509,16 @@ var isFactionPanelOpen = false;
 function isUIOpen() {
   return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
 }
+function closeFactionPanel() {
+  if (!isFactionPanelOpen) return;
+  isFactionPanelOpen = false;
+  mp.gui.cursor.show(false, false);
+  const browser = getGameBrowser();
+  if (browser) browser.execute("window.closeFactionUI && window.closeFactionUI();");
+}
 mp.keys.bind(114, true, () => {
   if (isFactionPanelOpen) {
-    const browser = getGameBrowser();
-    if (browser) browser.execute("window.closeFactionUI && window.closeFactionUI();");
+    closeFactionPanel();
     return;
   }
   if (isUIOpen()) return;
@@ -534,10 +540,11 @@ mp.events.add("client:showFactionUI", (factionDataJson) => {
   `);
 });
 mp.events.add("client:closeFactionUI", () => {
-  isFactionPanelOpen = false;
-  mp.gui.cursor.show(false, false);
-  const browser = getGameBrowser();
-  if (browser) browser.execute("window.closeFactionUI && window.closeFactionUI();");
+  if (isFactionPanelOpen) {
+    closeFactionPanel();
+  } else {
+    mp.gui.cursor.show(false, false);
+  }
 });
 mp.events.add("client:factionInviteClick", () => {
   mp.events.callRemote("server:factionInviteRequest");
@@ -566,6 +573,15 @@ mp.events.add("client:faction:updateRankName", (factionId, rankId, newName) => {
 mp.events.add("client:faction:updateDivisionName", (factionId, divId, newName) => {
   mp.events.callRemote("server:faction:updateDivisionName", factionId, divId, newName);
 });
+mp.events.add("client:faction:updateRankPermissions", (factionId, rankId, permissionsJson) => {
+  mp.events.callRemote("server:faction:updateRankPermissions", factionId, rankId, permissionsJson);
+});
+mp.events.add("client:faction:liveUpdate", (patchJson) => {
+  const browser = getGameBrowser();
+  if (!browser) return;
+  const escaped = patchJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  browser.execute(`window.patchFactionUI && window.patchFactionUI('${escaped}')`);
+});
 mp.events.add("client:receiveOffer", (offerJson) => {
   const browser = getGameBrowser();
   if (!browser) return;
@@ -578,8 +594,37 @@ mp.events.add("client:acceptOffer", (offerId) => {
 mp.events.add("client:rejectOffer", (offerId) => {
   mp.events.callRemote("server:faction:rejectOffer", offerId);
 });
+mp.events.add("client:faction:leaveFaction", (factionId) => {
+  mp.events.callRemote("server:faction:leaveFaction", factionId);
+});
+mp.events.add("client:faction:treasuryDeposit", (factionId, amount) => {
+  mp.events.callRemote("server:faction:treasuryDeposit", factionId, amount);
+});
+mp.events.add("client:faction:treasuryWithdraw", (factionId, amount) => {
+  mp.events.callRemote("server:faction:treasuryWithdraw", factionId, amount);
+});
+mp.events.add("client:faction:setChatEnabled", (factionId, enabled) => {
+  mp.events.callRemote("server:faction:setChatEnabled", factionId, enabled);
+});
+mp.events.add("client:faction:updateDescription", (factionId, text) => {
+  mp.events.callRemote("server:faction:updateDescription", factionId, text);
+});
 function initFaction() {
   console.log("[CLIENT] Faction sistemi ba\u015Flat\u0131ld\u0131.");
+}
+
+// src/client/scrollMenu.ts
+var cursorActive = false;
+function isBlockingUIOpen() {
+  return mp.game.ui.isPauseMenuActive();
+}
+mp.keys.bind(115, true, () => {
+  if (isBlockingUIOpen()) return;
+  cursorActive = !cursorActive;
+  mp.gui.cursor.show(cursorActive, cursorActive);
+});
+function initScrollMenu() {
+  console.log("[CLIENT] F4 cursor toggle ba\u015Flat\u0131ld\u0131.");
 }
 
 // src/client/creator.ts
@@ -892,6 +937,7 @@ registerClientAuthEvents();
 initHUD();
 initNametags();
 initFaction();
+initScrollMenu();
 mp.events.add("browserCreated", (browser) => {
   console.log("[CLIENT] Browser olu\u015Fturuldu.");
 });
