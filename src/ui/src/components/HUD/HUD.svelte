@@ -92,19 +92,11 @@
     return 'ic';
   }
 
-  let messages = $state<ChatMessage[]>([
-    { id: 1,  type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] },
-    { id: 2,  type: 'system', segments: [{ text: '🎮 SantosRP | Los Santos Roleplay Sunucusuna Hoş Geldiniz!', color: '#c9a84c' }] },
-    { id: 3,  type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] },
-    { id: 4,  type: 'system', segments: [{ text: '✅ Enterprise düzeyde performans ve güvenlik', color: '#22c55e' }] },
-    { id: 5,  type: 'system', segments: [{ text: '✅ Dinamik komut sistemi (Sayısal yetki tabanlı)', color: '#22c55e' }] },
-    { id: 6,  type: 'system', segments: [{ text: '✅ Akıllı Ghost Text (Çoklu argüman takibi)', color: '#22c55e' }] },
-    { id: 7,  type: 'system', segments: [{ text: '✅ Gelişmiş karakter yaratıcı (Svelte 5 Runes)', color: '#22c55e' }] },
-    { id: 8,  type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] },
-    { id: 9,  type: 'system', segments: [{ text: '💬 Chat açmak için T tuşuna basın', color: '#94a3b8' }] },
-    { id: 10, type: 'system', segments: [{ text: '📝 Komut listesi için /admins yazın', color: '#94a3b8' }] },
-    { id: 11, type: 'system', segments: [{ text: '🎯 İyi roller dileriz!', color: '#c9a84c' }] },
-    { id: 12, type: 'system', segments: [{ text: '═══════════════════════════════════════════════', color: null }] }
+let messages = $state<ChatMessage[]>([
+    { id: 4, type: 'system', segments: [{ text: '🎯 İyi roller dileriz!', color: '#c9a84c' }] },
+    { id: 3, type: 'system', segments: [{ text: '📝 Komut listesi için /komutlar kullanınız', color: '#94a3b8' }] },
+    { id: 2,  type: 'system', segments: [{ text: '💬 Chat açmak için T tuşuna basın', color: '#94a3b8' }] },
+    { id: 1,  type: 'system', segments: [{ text: '🎮 SantosRP | Los Santos Roleplay Sunucusuna Hoş Geldiniz!', color: '#c9a84c' }] },
   ]);
   
   let isChatActive = $state(false);
@@ -199,14 +191,18 @@
   // --- FONKSİYONLAR ---
   
   /** Kuyruktaki tüm mesajları tek seferde state'e yazar — dizi asla kopyalanmaz */
+/** Kuyruktaki tüm mesajları tek seferde state'e yazar — dizi asla kopyalanmaz */
   function flushQueue() {
     flushScheduled = false;
     if (messageQueue.length === 0) return;
-    messages.push(...messageQueue);
+    
+    // push yerine unshift kullanarak dizinin EN BAŞINA (ekranda en alta) ekliyoruz.
+    messages.unshift(...messageQueue);
     messageQueue = [];
-    const overflow = messages.length - MAX_MESSAGES;
-    if (overflow > 0) {
-      messages.splice(0, overflow);
+    
+    // Eğer 250 mesajı geçerse, en eskileri (dizinin sonunu) kırp.
+    if (messages.length > MAX_MESSAGES) {
+      messages.length = MAX_MESSAGES; // Array'i sondan kesmenin en performanslı yoludur.
     }
   }
 
@@ -229,9 +225,11 @@
   let savedDraft     = $state('');
 
   /** Ham mesajı kuyruğa alır; aynı tick'te gelen tüm mesajlar tek render'da işlenir */
+/** Ham mesajı kuyruğa alır; aynı tick'te gelen tüm mesajlar tek render'da işlenir */
   function addChatMessage(raw: string) {
     try {
-      messageQueue.push({
+      // push yerine unshift yapıyoruz ki, aynı anda gelen mesajlar kendi içinde doğru sıralansın
+      messageQueue.unshift({
         id: Date.now() + Math.random(),
         type: detectType(raw),
         segments: parseColors(raw)
@@ -379,16 +377,22 @@
 
     // Araç gösterge paneli güncellemesi (hud.ts'den 100ms'de bir gelir)
     // f = bitmask: bit0=engine, bit1=locked, bit2=seatbelt (3 boolean → 1 int)
-    window.chv = (data: {
-      inVehicle: boolean;
+window.chv = (data: {
+      inVehicle?: boolean;  // Artık opsiyonel (undefined gelebilir)
       speed?: number;
       fuel?: number;
-      f?: number;           // Bitmask: bit0=engine, bit1=locked, bit2=seatbelt
+      f?: number;           
       lightsOn?: boolean;
       parkingBrakeOn?: boolean;
     }) => {
-      inVehicle    = data.inVehicle;
-      if (!data.inVehicle) return;
+      // 1. inVehicle verisi pakette varsa güncelle, yoksa mevcut durumu (true) koru
+      if (data.inVehicle !== undefined) {
+        inVehicle = data.inVehicle;
+      }
+      
+      // 2. data.inVehicle yerine state olan inVehicle'ı kontrol et
+      if (!inVehicle) return;
+
       vehicleSpeed = data.speed ?? vehicleSpeed;
       fuelLevel    = data.fuel  ?? fuelLevel;
       if (data.f !== undefined) {
