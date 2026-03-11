@@ -31,7 +31,9 @@ class FactionManager {
 
   /** DB'den tüm birlikleri çekip cache'e yükler */
   async loadAllFactions(): Promise<void> {
-    const res = await query('SELECT * FROM factions');
+    const res = await query(
+      'SELECT id, name, type, approvals, stock_value, founder_id, tasks, ranks, divisions FROM factions'
+    );
     this.factions.clear();
 
     for (const rawRow of res.rows) {
@@ -41,8 +43,8 @@ class FactionManager {
       row['tasks']     = safeParse<unknown[]>(row['tasks'],     []);
       row['ranks']     = safeParse<unknown[]>(row['ranks'],     []);
       row['divisions'] = safeParse<unknown[]>(row['divisions'], []);
-      row['members']   = safeParse<unknown[]>(row['members'],   []);
       row['approvals'] = safeParse<Record<string, boolean>>(row['approvals'], {});
+      // members artık characters tablosundan dinamik çekildiğinden cache'e almayız
 
       const id = row['id'] as number;
       this.factions.set(id, row);
@@ -82,9 +84,37 @@ safeEvent('server:requestFactionData', async (player: PlayerMp) => {
     return;
   }
 
-  // Oyuncu bağlamını faction objesine ekle
+  // Üyeleri characters tablosundan çek (canlı veri)
+  const membersRaw = await query(
+    'SELECT id, firstname, lastname, faction_rank AS rank, faction_division AS division FROM characters WHERE faction_id = $1',
+    [factionId]
+  );
+  const members = membersRaw.rows.map((r: Record<string, unknown>) => ({
+    id:       r['id'],
+    name:     `${r['firstname']} ${r['lastname']}`,
+    rank:     r['rank'],
+    division: r['division'],
+  }));
+
+  // Araçları vehicles tablosundan çek
+  const vehiclesResult = await query(
+    'SELECT model, plate FROM vehicles WHERE faction_id = $1',
+    [factionId]
+  );
+
+  // Birlik kategorisini belirle (10-19 → ŞİRKET)
+  const factionType = faction['type'] as number;
+  const isCompany   = factionType >= 10 && factionType <= 19;
+
+  // "ŞİRKET" dışında hisse değeri gönderilmez
+  const stockValue = isCompany ? (faction['stockValue'] ?? null) : null;
+
+  // Oyuncu bağlamı + canlı verili payload
   const payload: Record<string, unknown> = {
     ...faction,
+    members,
+    vehicles: vehiclesResult.rows,
+    stockValue,
     _playerContext: {
       characterId:   player.characterId   ?? null,
       characterName: player.characterName ?? player.name,

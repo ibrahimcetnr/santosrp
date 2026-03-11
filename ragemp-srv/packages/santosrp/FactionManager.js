@@ -37,7 +37,7 @@ class FactionManager {
     factions = new Map();
     /** DB'den tüm birlikleri çekip cache'e yükler */
     async loadAllFactions() {
-        const res = await (0, db_1.query)('SELECT * FROM factions');
+        const res = await (0, db_1.query)('SELECT id, name, type, approvals, stock_value, founder_id, tasks, ranks, divisions FROM factions');
         this.factions.clear();
         for (const rawRow of res.rows) {
             const row = rowToCamel(rawRow);
@@ -45,8 +45,8 @@ class FactionManager {
             row['tasks'] = safeParse(row['tasks'], []);
             row['ranks'] = safeParse(row['ranks'], []);
             row['divisions'] = safeParse(row['divisions'], []);
-            row['members'] = safeParse(row['members'], []);
             row['approvals'] = safeParse(row['approvals'], {});
+            // members artık characters tablosundan dinamik çekildiğinden cache'e almayız
             const id = row['id'];
             this.factions.set(id, row);
         }
@@ -76,9 +76,27 @@ exports.factionManager = new FactionManager();
         player.call('chat:push', ['!{#ef4444}[HATA] Birlik verisi bulunamadı.']);
         return;
     }
-    // Oyuncu bağlamını faction objesine ekle
+    // Üyeleri characters tablosundan çek (canlı veri)
+    const membersRaw = await (0, db_1.query)('SELECT id, firstname, lastname, faction_rank AS rank, faction_division AS division FROM characters WHERE faction_id = $1', [factionId]);
+    const members = membersRaw.rows.map((r) => ({
+        id: r['id'],
+        name: `${r['firstname']} ${r['lastname']}`,
+        rank: r['rank'],
+        division: r['division'],
+    }));
+    // Araçları vehicles tablosundan çek
+    const vehiclesResult = await (0, db_1.query)('SELECT model, plate FROM vehicles WHERE faction_id = $1', [factionId]);
+    // Birlik kategorisini belirle (10-19 → ŞİRKET)
+    const factionType = faction['type'];
+    const isCompany = factionType >= 10 && factionType <= 19;
+    // "ŞİRKET" dışında hisse değeri gönderilmez
+    const stockValue = isCompany ? (faction['stockValue'] ?? null) : null;
+    // Oyuncu bağlamı + canlı verili payload
     const payload = {
         ...faction,
+        members,
+        vehicles: vehiclesResult.rows,
+        stockValue,
         _playerContext: {
             characterId: player.characterId ?? null,
             characterName: player.characterName ?? player.name,
