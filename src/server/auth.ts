@@ -322,7 +322,7 @@ export function registerAuthEvents(): void {
   // NOT: safeEvent kullanılmıyor — disconnect anında mp.players.exists(player)
   // false döner ve safeEvent handler'ı çalıştırmadan sessizce çıkar,
   // bu da activeAccounts'un asla temizlenmemesine (relog hatası) yol açar.
-  mp.events.add('playerDisconnect', (player: PlayerMp) => {
+  safeEvent('playerDisconnect', async (player: PlayerMp) => {
     try {
       const key = getRateLimitKey(player);
       loginLocks.delete(key);

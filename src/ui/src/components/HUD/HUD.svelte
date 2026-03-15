@@ -2,7 +2,8 @@
   import { onMount, tick } from 'svelte';
 
   // Props
-  let { myAdminLevel = 0, commands = [] } = $props<{ myAdminLevel?: number; commands?: any[] }>();
+  import type { ICommand } from '../../../../shared/types';
+  let { myAdminLevel = 0, commands = [] } = $props<{ myAdminLevel?: number; commands?: ICommand[] }>();
 
   // --- STATE: HUD Verileri ---
   let charName    = $state('Oyuncu');        // hudInit ile gelir

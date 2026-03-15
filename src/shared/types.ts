@@ -211,3 +211,59 @@ export const FactionTypeNames: Record<FactionType, string> = {
 export function getFactionTypeName(type: FactionType): string {
     return FactionTypeNames[type] || "Bilinmeyen Birlik Türü";
 }
+// Envanter (Inventory) Veri Yapıları
+export interface ItemDef {
+    id: string;
+    name: string;
+    type: string;
+    img: string;
+    weight: number;
+    usable: boolean;
+}
+
+export interface InventorySlot {
+    id?: number; 
+    slot: number;
+    itemId: string;
+    amount: number;
+    metadata?: any;
+}
+
+// Birlik Davet (Faction Invite)
+export interface PendingOffer {
+  type: 'faction_invite';
+  factionId: number;
+  factionName: string;
+  inviterCharId: number;
+  inviterName: string;
+}
+
+// Araç Bilgileri (Vehicle Data)
+export interface VehicleData {
+    id: number;
+    model: string;
+    plate: string;
+    owner_id: number;
+    faction_id: number | null;
+    parked: boolean;
+    color1: number;
+    color2: number;
+    posX: number;
+    posY: number;
+    posZ: number;
+    heading: number;
+    health: number;
+    fuel: number;
+    dirtLevel: number;
+}
+
+// Veritabanı araç modeli önbellek verisi (vehicles_data tablosu)
+export interface VehicleModelData {
+    id: number;
+    model: string;
+    fuel_type: string;
+    fuel_tank_size: number;
+    trunk_size: number;
+    dealership_stock: number;
+    price: number;
+}

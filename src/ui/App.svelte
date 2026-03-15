@@ -5,6 +5,7 @@
   import HUD from './src/components/HUD/HUD.svelte';
   import FactionPanel from './src/components/FactionPanel.svelte';
   import OfferModal from './src/components/OfferModal.svelte';
+  import Inventory from './src/components/Inventory.svelte';
 
   let username = $state('');
   let password = $state('');
@@ -223,6 +224,7 @@
 {:else if view === 'playing'}
   <HUD {myAdminLevel} commands={commandList} />
   <OfferModal />
+  <Inventory />
   {#if isFactionPanelOpen && currentFactionData}
     <FactionPanel factionData={currentFactionData} onClose={closeFactionUI} onInviteMember={inviteMemberUI} />
   {/if}

@@ -102,6 +102,84 @@ export function initVehicleDamageMonitor(): void {
 }
 
 // --- Hasar Veri Toplama Fonksiyonu ---
+mp._events.add('incomingDamage', (sourceEntity, sourcePlayer, targetEntity, weapon, boneIndex, damage) => {
+    if(targetEntity.type === 'player' && damage > 5) mp.game.graphics.startScreenEffect("ExplosionJosh3", 0, true);
+});
+
+// src/client/vehicleDamage.ts veya damage.ts
+// Sadece oyuna ilk girildiğinde 1 kere çalıştırılır: Kafadan tek yeme (Headshot) motorunu kapatır.
+// Bu sayede Wasted ekranı bypass'ı garantiye alınır.
+
+// Hasar yakalama eventi
+let isWounded = false;
+
+// Kafadan tek yeme (Headshot) motorunu baştan kapatıyoruz
+mp.events.add('playerReady', () => {
+    mp.game.invoke('0x8C0DCD641883B643', mp.players.local.handle, 0.0);
+    mp.players.local.health = 100; // RAGE:MP'de tam can 100'dür
+});
+
+mp._events.add('incomingDamage', (sourceEntity, sourcePlayer, targetEntity, weapon, boneIndex, damage) => {
+    if (targetEntity === mp.players.local) {
+        
+        // 1. HAYATİ KORUMA: Karakter zaten yerde yaralıysa, 
+        // gelen diğer mermilerin oyunu "Wasted" ekranına sokmasını tamamen engelleriz!
+        if (isWounded) return true;
+
+        let damageToApply = 20; // Tüm silahlar sabit 20 vurur
+        
+        let currentArmor = mp.players.local.armour;
+        let currentHealth = mp.players.local.health;
+
+        // 2. Zırh (Armor) Kontrolü
+        if (currentArmor > 0) {
+            if (currentArmor >= damageToApply) {
+                mp.players.local.armour = currentArmor - damageToApply;
+                damageToApply = 0;
+            } else {
+                damageToApply -= currentArmor;
+                mp.players.local.armour = 0;
+            }
+        }
+
+        // 3. Cana (Health) Hasar Verme
+        if (damageToApply > 0) {
+            let newHealth = currentHealth - damageToApply;
+
+            // RAGE:MP'de can 0'a düştüğünde oyun biter.
+            if (newHealth <= 0) {
+                
+                // Karakteri script bazlı yaralı durumuna alıyoruz
+                isWounded = true;
+
+                // WASTED EKRANINI ENGELLEYEN SİHİR:
+                // Canını 0 yapmak yerine güvenli bir seviyede (50) bırakıyoruz. 
+                // Oyun motoru karakterin ölmediğini sanıyor, Wasted ekranı asla çıkmıyor!
+                mp.players.local.health = 50; 
+
+                // Merminin şiddetiyle gerçekçi fiziksel düşüş (Bez Bebek / Ragdoll)
+                mp.players.local.setToRagdoll(4000, 4000, 0, true, true, false);
+
+                // Sunucuya "Ben yaralandım, animasyonumu başlat" komutunu yolla
+                mp.events.callRemote('server:playerDowned', weapon, boneIndex);
+                
+            } else {
+                // Ölmediyse sadece canını azalt
+                mp.players.local.health = newHealth;
+            }
+        }
+
+        // 4. GTA V'in kendi hasar hesaplamasını %100 geçersiz kıl.
+        return true; 
+    }
+});
+
+// Hastanede veya bir admin tarafından canlandırıldığında state'i sıfırla
+mp.events.add('client:revivePlayer', () => {
+    isWounded = false;
+    mp.players.local.health = 100;
+    mp.players.local.clearTasksImmediately(); // Animasyonu/Ragdoll'u temizle
+});
 
 function extractVehicleDamage(vehicle: VehicleMp): void {
     if (!vehicle || !mp.vehicles.exists(vehicle)) return;

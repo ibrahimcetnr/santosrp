@@ -478,3 +478,28 @@ mp.keys.bind(81, false, () => {
         mp.game.invoke('0x8B7FD87F0DDB421E', veh.handle, false);
     }
 });
+// Tab (9): Envanter
+mp.keys.bind(9, true, () => {
+    if (isUIOpen()) return; // Zaten açıksa veya başka UI açıksa tetikleme
+    mp.events.callRemote('client:inventory:requestOpen');
+});
+
+// Envanter Kapanma İsteği
+mp.events.add('server:inventory:close', () => {
+    mp.events.callRemote('client:inventory:closed');
+    // UI tarafında closeInventory() çağrılmış olmalı veya Rpc ile yönetilmeli.
+    // Şimdilik sadece cursor gizleme vs.
+    mp.gui.cursor.show(false, false);
+});
+
+
+// Envanter Aç (Sunucudan gelen veriyle)
+mp.events.add('client:inventory:openUI', (payloadJson: string) => {
+    import('./auth').then(({ getGameBrowser }) => {
+        const browser = getGameBrowser();
+        if (browser) {
+            mp.gui.cursor.show(true, true);
+            browser.execute(`window.openInventory('${payloadJson.replace(/'/g, "\\'")}')`);
+        }
+    });
+});

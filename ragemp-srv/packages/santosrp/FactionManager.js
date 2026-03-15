@@ -513,7 +513,7 @@ function isMemberOf(player, factionId) {
 function initFactionManager() {
     exports.factionManager.loadAllFactions().catch((err) => console.error('[FACTION] loadAllFactions hatası:', err));
     // Oyuncu bağlantısı kesildiğinde birlik online cache'ini ve cooldown kaydını temizle
-    mp.events.add('playerQuit', (player) => {
+    (0, safeEvent_1.safeEvent)('playerQuit', async (player) => {
         const factionId = player.getVariable('faction_id');
         if (factionId)
             unregisterPlayerFactionOnline(player, factionId);

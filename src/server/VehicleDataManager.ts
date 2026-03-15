@@ -4,18 +4,10 @@
  */
 import { query } from './db';
 
-export interface VehicleData {
-    id: number;
-    model: string;
-    fuel_type: string;
-    fuel_tank_size: number;
-    trunk_size: number;
-    dealership_stock: number;
-    price: number;
-}
+import { VehicleModelData } from '../shared/types';
 
 // Araç modeli (string) -> Araç Verisi
-const vehicleDataCache = new Map<string, VehicleData>();
+const vehicleDataCache = new Map<string, VehicleModelData>();
 
 export async function initVehicleDataManager(): Promise<void> {
     console.log('[VEHICLE_DATA] Araç verileri veritabanından çekiliyor...');
@@ -45,6 +37,6 @@ export async function initVehicleDataManager(): Promise<void> {
  * Verilen modele ait temel araç verilerini döndürür.
  * @param model Araç modeli (örn: 'sultan', 'blista')
  */
-export function getVehicleData(model: string): VehicleData | undefined {
+export function getVehicleData(model: string): VehicleModelData | undefined {
     return vehicleDataCache.get(model.toLowerCase());
 }

@@ -17,6 +17,7 @@ Object.defineProperty(exports, "queueCharacterSave", { enumerable: true, get: fu
 const safeEvent_1 = require("./utils/safeEvent");
 const db_1 = require("./db");
 const cmdHandler_1 = require("./cmdHandler");
+require("./inventory");
 const payday_1 = require("./payday");
 const weather_1 = require("./weather");
 const VehicleManager_1 = require("./VehicleManager");

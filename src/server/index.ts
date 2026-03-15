@@ -13,6 +13,7 @@ import { startSaveQueue, stopSaveQueue, flushAll, flushCharacterSync, queueChara
 import { safeEvent, isPlayerValid } from './utils/safeEvent';
 import { disconnectDB } from './db';
 import { initCommandSystem, getAvailableCommands } from './cmdHandler';
+import './inventory';
 import { startPayday } from './payday';
 import { initWeatherSystem } from './weather';
 import { recoverVehicles, initVehicleManager, saveAllVehicles } from './VehicleManager';

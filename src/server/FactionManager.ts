@@ -69,13 +69,7 @@ class FactionManager {
 }
 
 // ─── Bekleyen teklif/davet haritası ────────────────────────────────────────────
-interface PendingOffer {
-  type: 'faction_invite';
-  factionId: number;
-  factionName: string;
-  inviterCharId: number;
-  inviterName: string;
-}
+import { PendingOffer } from '../shared/types';
 const pendingOffers = new Map<string, PendingOffer>();
 
 export const factionManager = new FactionManager();
@@ -522,7 +516,7 @@ export function initFactionManager(): void {
     console.error('[FACTION] loadAllFactions hatası:', err)
   );
   // Oyuncu bağlantısı kesildiğinde birlik online cache'ini ve cooldown kaydını temizle
-  mp.events.add('playerQuit', (player: PlayerMp) => {
+  safeEvent('playerQuit', async (player: PlayerMp) => {
     const factionId = player.getVariable('faction_id') as number | null | undefined;
     if (factionId) unregisterPlayerFactionOnline(player, factionId);
     factionRequestCooldowns.delete(player.id);

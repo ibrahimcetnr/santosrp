@@ -1,18 +1,33 @@
 var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // src/client/shared-constants.ts
-var PREVIEW_POS = new mp.Vector3(402.92, -996.78, -99);
-var PREVIEW_CAM = new mp.Vector3(402.92, -998.5, -98.5);
-var PREVIEW_HEADING = 178;
+var PREVIEW_POS, PREVIEW_CAM, PREVIEW_HEADING;
+var init_shared_constants = __esm({
+  "src/client/shared-constants.ts"() {
+    "use strict";
+    PREVIEW_POS = new mp.Vector3(402.92, -996.78, -99);
+    PREVIEW_CAM = new mp.Vector3(402.92, -998.5, -98.5);
+    PREVIEW_HEADING = 178;
+  }
+});
 
 // src/client/auth.ts
-var loginBrowser = null;
-var loginCamera = null;
-var UI_URL = "package://santosrp/ui/index.html";
-var CAM_POS = new mp.Vector3(716.81, 1198.8, 359.52);
-var CAM_LOOK = new mp.Vector3(350, -200, 40);
+var auth_exports = {};
+__export(auth_exports, {
+  getGameBrowser: () => getGameBrowser,
+  loginCamera: () => loginCamera,
+  registerClientAuthEvents: () => registerClientAuthEvents
+});
 function showLoginUI() {
   mp.players.local.position = new mp.Vector3(CAM_POS.x, CAM_POS.y, CAM_POS.z - 5);
   mp.players.local.setVisible(false, false);
@@ -98,122 +113,140 @@ function registerClientAuthEvents() {
     }
   });
 }
-var lastLoginVars = { username: "", password: "", rememberMe: false };
-mp.events.add("server:tryLogin", (username, pass, rememberMe) => {
-  lastLoginVars = { username, password: pass, rememberMe: rememberMe ?? false };
-  mp.events.callRemote("server:tryLogin", username, pass);
-});
-mp.events.add("client:previewCharacter", (modelName, charDataJson) => {
-  const p = mp.players.local;
-  if (loginCamera) {
-    loginCamera.setCoord(PREVIEW_CAM.x, PREVIEW_CAM.y, PREVIEW_CAM.z);
-    loginCamera.pointAtCoord(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z + 0.25);
-  }
-  if (charDataJson) {
-    p.freezePosition(false);
-    p.position = new mp.Vector3(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z);
-    p.setHeading(PREVIEW_HEADING);
-    try {
-      const d = JSON.parse(charDataJson);
-      d.gender = modelName === "mp_f_freemode_01" ? 1 : 0;
-      mp.events.call("client:updateCreatorAppearance", JSON.stringify(d));
-    } catch {
-      mp.events.call("client:updateCreatorAppearance", charDataJson);
-    }
-    p.setVisible(true, false);
-    p.freezePosition(true);
-    const ANIM_DICT = "nm@test_character_creator";
-    const ANIM_CLIP = "test_idle_ad";
-    mp.game.streaming.requestAnimDict(ANIM_DICT);
-    let _tAttempts = 0;
-    const t = setInterval(() => {
-      _tAttempts++;
-      if (mp.game.streaming.hasAnimDictLoaded(ANIM_DICT)) {
-        clearInterval(t);
-        mp.game.task.playAnim(p.handle, ANIM_DICT, ANIM_CLIP, 8, -8, -1, 1, 0, false, false, false);
-      } else if (_tAttempts >= 100) {
-        clearInterval(t);
-        console.error("[AUTH-CLIENT] Animasyon y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + ANIM_DICT);
+var loginBrowser, loginCamera, UI_URL, CAM_POS, CAM_LOOK, lastLoginVars;
+var init_auth = __esm({
+  "src/client/auth.ts"() {
+    "use strict";
+    init_shared_constants();
+    loginBrowser = null;
+    loginCamera = null;
+    UI_URL = "package://santosrp/ui/index.html";
+    CAM_POS = new mp.Vector3(716.81, 1198.8, 359.52);
+    CAM_LOOK = new mp.Vector3(350, -200, 40);
+    lastLoginVars = { username: "", password: "", rememberMe: false };
+    mp.events.add("server:tryLogin", (username, pass, rememberMe) => {
+      lastLoginVars = { username, password: pass, rememberMe: rememberMe ?? false };
+      mp.events.callRemote("server:tryLogin", username, pass);
+    });
+    mp.events.add("client:previewCharacter", (modelName, charDataJson) => {
+      const p = mp.players.local;
+      if (loginCamera) {
+        loginCamera.setCoord(PREVIEW_CAM.x, PREVIEW_CAM.y, PREVIEW_CAM.z);
+        loginCamera.pointAtCoord(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z + 0.25);
       }
-    }, 50);
-  } else {
-    const modelHash = mp.game.joaat(modelName);
-    mp.game.streaming.requestModel(modelHash);
-    let _wmAttempts = 0;
-    const waitModel = setInterval(() => {
-      _wmAttempts++;
-      if (mp.game.streaming.hasModelLoaded(modelHash)) {
-        clearInterval(waitModel);
+      if (charDataJson) {
         p.freezePosition(false);
-        p.model = modelHash;
         p.position = new mp.Vector3(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z);
         p.setHeading(PREVIEW_HEADING);
+        try {
+          const d = JSON.parse(charDataJson);
+          d.gender = modelName === "mp_f_freemode_01" ? 1 : 0;
+          mp.events.call("client:updateCreatorAppearance", JSON.stringify(d));
+        } catch {
+          mp.events.call("client:updateCreatorAppearance", charDataJson);
+        }
         p.setVisible(true, false);
         p.freezePosition(true);
         const ANIM_DICT = "nm@test_character_creator";
         const ANIM_CLIP = "test_idle_ad";
         mp.game.streaming.requestAnimDict(ANIM_DICT);
-        let _waAttempts = 0;
-        const waitAnim = setInterval(() => {
-          _waAttempts++;
+        let _tAttempts = 0;
+        const t = setInterval(() => {
+          _tAttempts++;
           if (mp.game.streaming.hasAnimDictLoaded(ANIM_DICT)) {
-            clearInterval(waitAnim);
+            clearInterval(t);
             mp.game.task.playAnim(p.handle, ANIM_DICT, ANIM_CLIP, 8, -8, -1, 1, 0, false, false, false);
-          } else if (_waAttempts >= 100) {
-            clearInterval(waitAnim);
+          } else if (_tAttempts >= 100) {
+            clearInterval(t);
             console.error("[AUTH-CLIENT] Animasyon y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + ANIM_DICT);
           }
         }, 50);
-      } else if (_wmAttempts >= 100) {
-        clearInterval(waitModel);
-        console.error("[AUTH-CLIENT] Karakter modeli y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + modelName);
+      } else {
+        const modelHash = mp.game.joaat(modelName);
+        mp.game.streaming.requestModel(modelHash);
+        let _wmAttempts = 0;
+        const waitModel = setInterval(() => {
+          _wmAttempts++;
+          if (mp.game.streaming.hasModelLoaded(modelHash)) {
+            clearInterval(waitModel);
+            p.freezePosition(false);
+            p.model = modelHash;
+            p.position = new mp.Vector3(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z);
+            p.setHeading(PREVIEW_HEADING);
+            p.setVisible(true, false);
+            p.freezePosition(true);
+            const ANIM_DICT = "nm@test_character_creator";
+            const ANIM_CLIP = "test_idle_ad";
+            mp.game.streaming.requestAnimDict(ANIM_DICT);
+            let _waAttempts = 0;
+            const waitAnim = setInterval(() => {
+              _waAttempts++;
+              if (mp.game.streaming.hasAnimDictLoaded(ANIM_DICT)) {
+                clearInterval(waitAnim);
+                mp.game.task.playAnim(p.handle, ANIM_DICT, ANIM_CLIP, 8, -8, -1, 1, 0, false, false, false);
+              } else if (_waAttempts >= 100) {
+                clearInterval(waitAnim);
+                console.error("[AUTH-CLIENT] Animasyon y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + ANIM_DICT);
+              }
+            }, 50);
+          } else if (_wmAttempts >= 100) {
+            clearInterval(waitModel);
+            console.error("[AUTH-CLIENT] Karakter modeli y\xFCklenemedi (Zaman a\u015F\u0131m\u0131): " + modelName);
+          }
+        }, 50);
       }
-    }, 50);
+    });
+    mp.events.add("client:creatorReady", () => {
+    });
+    mp.events.add("client:cleanupLoginCamera", () => {
+      if (loginCamera) {
+        loginCamera.setActive(false);
+        loginCamera.destroy();
+        loginCamera = null;
+      }
+    });
+    mp.events.add("client:playCharacter", (charId) => {
+      mp.events.callRemote("server:playCharacter", charId);
+    });
+    mp.events.add("client:restoreSelectCamera", () => {
+      mp.players.local.freezePosition(true);
+      mp.players.local.setVisible(false, false);
+      if (loginCamera) {
+        loginCamera.destroy();
+        loginCamera = null;
+      }
+      mp.players.local.position = new mp.Vector3(PREVIEW_CAM.x, PREVIEW_CAM.y, PREVIEW_CAM.z);
+      loginCamera = mp.cameras.new("default", PREVIEW_CAM, new mp.Vector3(0, 0, 0), 55);
+      loginCamera.pointAtCoord(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z + 0.25);
+      loginCamera.setActive(true);
+      mp.game.cam.renderScriptCams(true, false, 0, true, false);
+      mp.gui.cursor.show(true, true);
+      mp.game.ui.displayHud(false);
+      mp.game.ui.displayRadar(false);
+    });
+    mp.events.add("client:createSelectCamera", () => {
+      if (loginCamera) {
+        loginCamera.destroy();
+        loginCamera = null;
+      }
+      mp.players.local.position = new mp.Vector3(PREVIEW_CAM.x, PREVIEW_CAM.y, PREVIEW_CAM.z);
+      loginCamera = mp.cameras.new("default", PREVIEW_CAM, new mp.Vector3(0, 0, 0), 55);
+      loginCamera.pointAtCoord(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z + 0.25);
+      mp.gui.cursor.show(true, true);
+      mp.game.ui.displayHud(false);
+      mp.game.ui.displayRadar(false);
+    });
+    mp.events.add("client:hideLogin", () => {
+      hideLoginUI();
+    });
   }
 });
-mp.events.add("client:creatorReady", () => {
-});
-mp.events.add("client:cleanupLoginCamera", () => {
-  if (loginCamera) {
-    loginCamera.setActive(false);
-    loginCamera.destroy();
-    loginCamera = null;
-  }
-});
-mp.events.add("client:playCharacter", (charId) => {
-  mp.events.callRemote("server:playCharacter", charId);
-});
-mp.events.add("client:restoreSelectCamera", () => {
-  mp.players.local.freezePosition(true);
-  mp.players.local.setVisible(false, false);
-  if (loginCamera) {
-    loginCamera.destroy();
-    loginCamera = null;
-  }
-  mp.players.local.position = new mp.Vector3(PREVIEW_CAM.x, PREVIEW_CAM.y, PREVIEW_CAM.z);
-  loginCamera = mp.cameras.new("default", PREVIEW_CAM, new mp.Vector3(0, 0, 0), 55);
-  loginCamera.pointAtCoord(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z + 0.25);
-  loginCamera.setActive(true);
-  mp.game.cam.renderScriptCams(true, false, 0, true, false);
-  mp.gui.cursor.show(true, true);
-  mp.game.ui.displayHud(false);
-  mp.game.ui.displayRadar(false);
-});
-mp.events.add("client:createSelectCamera", () => {
-  if (loginCamera) {
-    loginCamera.destroy();
-    loginCamera = null;
-  }
-  mp.players.local.position = new mp.Vector3(PREVIEW_CAM.x, PREVIEW_CAM.y, PREVIEW_CAM.z);
-  loginCamera = mp.cameras.new("default", PREVIEW_CAM, new mp.Vector3(0, 0, 0), 55);
-  loginCamera.pointAtCoord(PREVIEW_POS.x, PREVIEW_POS.y, PREVIEW_POS.z + 0.25);
-  mp.gui.cursor.show(true, true);
-  mp.game.ui.displayHud(false);
-  mp.game.ui.displayRadar(false);
-});
-mp.events.add("client:hideLogin", () => {
-  hideLoginUI();
-});
+
+// src/client/index.ts
+init_auth();
+
+// src/client/hud.ts
+init_auth();
 
 // src/client/minimap.ts
 function getMinimapAnchor() {
@@ -539,6 +572,7 @@ mp.events.add("render", () => {
 });
 
 // src/client/faction.ts
+init_auth();
 var isFactionPanelOpen = false;
 function isUIOpen() {
   return mp.gui.cursor.visible || mp.game.ui.isPauseMenuActive();
@@ -662,6 +696,8 @@ function initScrollMenu() {
 }
 
 // src/client/creator.ts
+init_auth();
+init_shared_constants();
 var CREATOR_ANIM_DICT = "nm@test_character_creator";
 var CREATOR_ANIM_CLIP = "test_idle_ad";
 function requestAnimDictSafe(dictName, callback, timeoutMs = 5e3) {
@@ -1270,4 +1306,21 @@ mp.keys.bind(81, false, () => {
   if (veh) {
     mp.game.invoke("0x8B7FD87F0DDB421E", veh.handle, false);
   }
+});
+mp.keys.bind(9, true, () => {
+  if (isUIOpen2()) return;
+  mp.events.callRemote("client:inventory:requestOpen");
+});
+mp.events.add("server:inventory:close", () => {
+  mp.events.callRemote("client:inventory:closed");
+  mp.gui.cursor.show(false, false);
+});
+mp.events.add("client:inventory:openUI", (payloadJson) => {
+  Promise.resolve().then(() => (init_auth(), auth_exports)).then(({ getGameBrowser: getGameBrowser2 }) => {
+    const browser = getGameBrowser2();
+    if (browser) {
+      mp.gui.cursor.show(true, true);
+      browser.execute(`window.openInventory('${payloadJson.replace(/'/g, "\\'")}')`);
+    }
+  });
 });
