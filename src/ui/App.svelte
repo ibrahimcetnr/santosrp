@@ -27,6 +27,7 @@
   import FactionPanel from './src/components/FactionPanel.svelte';
   import OfferModal from './src/components/OfferModal.svelte';
   import Inventory from './src/components/Inventory.svelte';
+  import Icon from './src/components/Icon.svelte';
 
   let username = $state('');
   let password = $state('');
@@ -129,6 +130,8 @@
       if (typeof data?.left === 'number') minimapLeft.set(data.left);
     };
 
+    let lastVehicleUpdate = 0;
+
     window.chv = (data: {
       inVehicle?: boolean;
       speed?: number;
@@ -137,9 +140,23 @@
       lightsOn?: boolean;
       parkingBrakeOn?: boolean;
     }) => {
+      const hasDiscreteFlags =
+        data.inVehicle !== undefined ||
+        data.f !== undefined ||
+        typeof data.lightsOn === 'boolean' ||
+        typeof data.parkingBrakeOn === 'boolean';
+
+      const now = Date.now();
+      const canProcessContinuous = now - lastVehicleUpdate >= 50;
+      if (canProcessContinuous) {
+        lastVehicleUpdate = now;
+      }
+
       if (data.inVehicle !== undefined) inVehicle.set(data.inVehicle);
-      if (typeof data.speed === 'number') vehicleSpeed.set(data.speed);
-      if (typeof data.fuel === 'number') vehicleFuel.set(data.fuel);
+      if (canProcessContinuous || hasDiscreteFlags) {
+        if (typeof data.speed === 'number') vehicleSpeed.set(data.speed);
+        if (typeof data.fuel === 'number') vehicleFuel.set(data.fuel);
+      }
       if (typeof data.f === 'number') {
         vehicleEngineOn.set((data.f & 1) !== 0);
         vehicleLocked.set((data.f & 2) !== 0);
@@ -311,7 +328,7 @@
       <!-- Hata mesajı -->
       {#if errorMessage}
         <div class="error-message">
-          <span class="error-icon">⚠</span>
+          <span class="error-icon"><Icon name="warning" size="16px" color="#f87171" /></span>
           {errorMessage}
         </div>
       {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { FactionType, getFactionTypeName, getFactionCategory } from '../../../shared/types';
 
   // ── Onay etiket + ikon + renk haritası ──────────────────────────────────
@@ -333,9 +334,7 @@
 <div class="panel" style="--accent: {accentColor}; --accent-glow: {accentGlow};">
   <!-- ── Sağ üst kapatma butonu ────────────────────────────── -->
   <button class="close-corner" onclick={close} aria-label="Kapat">
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    </svg>
+    <Icon name="close" size="14px" />
   </button>
 
   <!-- ── Sidebar ─────────────────────────────────────────── -->
@@ -536,7 +535,7 @@
           </h2>
           <div class="btn-group">
             <button class="btn btn-success btn-sm" onclick={() => openModal('invite')}>
-              <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <Icon name="plus" size="11px" />
               Üye Al
             </button>
           </div>
@@ -572,29 +571,15 @@
                   {#if member.id !== myCharId}
                   <button class="icon-btn has-tooltip" data-tooltip="Rütbe Düzenle" aria-label="Rütbe Düzenle"
                     onclick={() => openModal('editRank', member)}>
-                    <!-- yıldız ikonu -->
-                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-                      <path d="M10 2l2.4 4.9 5.4.8-3.9 3.8.9 5.3L10 14.4l-4.8 2.5.9-5.3L2.2 7.7l5.4-.8z"
-                        stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-                    </svg>
+                    <Icon name="star" size="13px" />
                   </button>
                   <button class="icon-btn has-tooltip" data-tooltip="Divizyon Düzenle" aria-label="Divizyon Düzenle"
                     onclick={() => openModal('editDivision', member)}>
-                    <!-- kişi grubu ikonu -->
-                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-                      <circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/>
-                      <path d="M1 17c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                      <path d="M14 4.5a3 3 0 1 1 0 5M19 17c0-3.3-2.3-5.5-5-5.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                    </svg>
+                    <Icon name="users" size="13px" />
                   </button>
                   <button class="icon-btn icon-btn-danger has-tooltip" data-tooltip="Üye At" aria-label="Üye At"
                     onclick={() => openModal('kickConfirm', member)}>
-                    <!-- çöp kutusu ikonu -->
-                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-                      <path d="M5 5l1 11h8l1-11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                      <path d="M3 5h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                      <path d="M8 5V3h4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
+                    <Icon name="trash" size="13px" />
                   </button>
                   {/if}
                 </div>
@@ -797,9 +782,7 @@
           {/if}
         </span>
         <button class="modal-close" onclick={closeModal} aria-label="Kapat">
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-            <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-          </svg>
+          <Icon name="close" size="12px" />
         </button>
       </div>
 
@@ -863,7 +846,7 @@
 
         {:else if modalMode === 'kickConfirm'}
           <div class="kick-warn">
-            <span class="kick-icon">⚠</span>
+            <span class="kick-icon"><Icon name="warning" size="14px" /></span>
             <p class="modal-desc">
               <strong>{editingMember?.name}</strong> adlı üyeyi birlikten atmak istediğinizden emin misiniz?
             </p>
@@ -888,7 +871,7 @@
 
         {:else if modalMode === 'leaveConfirm'}
           <div class="kick-warn">
-            <span class="kick-icon">⚠</span>
+            <span class="kick-icon"><Icon name="warning" size="14px" /></span>
             <p class="modal-desc">Birlikten ayrılmak istediğinizden emin misiniz?</p>
           </div>
           <p class="modal-sub">Ayrıldıktan sonra rütbenizi ve tüm birlik yetkilerinizi kaybedersiniz.</p>

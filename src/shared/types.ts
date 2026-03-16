@@ -216,7 +216,7 @@ export interface ItemDef {
     id: string;
     name: string;
     type: string;
-    img: string;
+  icon?: string;
     weight: number;
     usable: boolean;
 }

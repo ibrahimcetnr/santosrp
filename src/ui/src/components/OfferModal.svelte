@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import Icon from './Icon.svelte';
 
   /**
    * OfferModal — Bağımsız teklif/onay modülü.
@@ -65,9 +66,9 @@
   });
 
   const ICON_BY_TYPE: Record<string, string> = {
-    faction_invite: '⚔',
-    trade:          '⇌',
-    taxi:           '🚕',
+    faction_invite: 'faction-invite',
+    trade:          'trade',
+    taxi:           'taxi',
   };
 
   onDestroy(() => {
@@ -83,11 +84,11 @@
 {#if offers.length > 0}
   <div class="offer-container">
     {#each offers as offer (offer.id)}
-      {@const icon = ICON_BY_TYPE[offer.type] ?? '●'}
+      {@const icon = ICON_BY_TYPE[offer.type] ?? 'default'}
       {@const secs = countdowns[offer.id]}
       <div class="offer-card" role="dialog" aria-modal="true" aria-label={offer.title}>
         <div class="offer-header">
-          <span class="offer-icon">{icon}</span>
+          <span class="offer-icon"><Icon name={icon} size="16px" /></span>
           <span class="offer-title">{offer.title}</span>
           {#if secs !== undefined}
             <span class="offer-timer" class:offer-timer-urgent={secs <= 10}>{secs}s</span>
@@ -111,15 +112,11 @@
 
         <div class="offer-actions">
           <button class="offer-btn accept" onclick={() => dismissOffer(offer.id, true)}>
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M1.5 6.5L4.5 9.5L10.5 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <span class="offer-action-icon"><Icon name="check" size="11px" /></span>
             Kabul Et
           </button>
           <button class="offer-btn reject" onclick={() => dismissOffer(offer.id, false)}>
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M1.5 1.5L10.5 10.5M10.5 1.5L1.5 10.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-            </svg>
+            <span class="offer-action-icon"><Icon name="x" size="11px" /></span>
             Reddet
           </button>
         </div>

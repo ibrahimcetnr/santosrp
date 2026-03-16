@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
+  import Icon from '../Icon.svelte';
   import {
     charName,
     playerId,
@@ -433,7 +434,7 @@ let messages = $state<ChatMessage[]>([
   <div class="minimap-info-container" style="bottom: {$minimapBottom}px; left: {$minimapLeft}px; width: {$minimapWidth}px;">
     <div class="map-box split-box">
       <div class="map-left location-part">
-        <svg class="map-icon text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+        <span class="map-icon text-accent"><Icon name="map-pin" size="100%" /></span>
         <span class="map-value">{$locationName}</span>
       </div>
       <div class="map-separator"></div>
@@ -448,12 +449,7 @@ let messages = $state<ChatMessage[]>([
         <span class="map-value time-val">{serverTime}</span>
       </div>
       <div class="map-right icon-part bg-accent">
-        <svg class="map-icon text-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="16" y1="2" x2="16" y2="6"></line>
-          <line x1="8" y1="2" x2="8" y2="6"></line>
-          <line x1="3" y1="10" x2="21" y2="10"></line>
-        </svg>
+        <span class="map-icon text-dark"><Icon name="clock" size="100%" /></span>
       </div>
     </div>
   </div>
@@ -463,7 +459,7 @@ let messages = $state<ChatMessage[]>([
       <div class="text-col align-right">
         <span class="value cash">{cashMoney}</span>
       </div>
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle></svg>
+      <span class="icon"><Icon name="wallet" size="100%" /></span>
     </div>
 
     <!-- DISABLED: Silah sistemi henüz hazır değil (S/Y/O modları ile aktif edilecek)
@@ -471,7 +467,7 @@ let messages = $state<ChatMessage[]>([
       <div class="text-col align-right">
         <span class="value">{currentWeapon}</span>
       </div>
-      <svg class="icon" ...></svg>
+      <span class="icon"></span>
     </div>
     -->
   </div>
@@ -484,29 +480,20 @@ let messages = $state<ChatMessage[]>([
 
       <div class="vehicle-icon-bar">
         <div class="icon-btn {$vehicleLightsOn ? 'active' : 'inactive'}">
-          <!-- Lightbulb (far) ikonu -->
-          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 18h6" />
-            <path d="M10 22h4" />
-            <path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.9 2.5 5.1C8.2 15 9 16.5 9 18h6c0-1.5.8-3 1.5-3.9C18 12.9 19 11 19 9a7 7 0 0 0-7-7z" />
-          </svg>
+          <span class="v-icon"><Icon name="car-lights" size="100%" /></span>
         </div>
         <div class="icon-btn {$vehicleParkingBrakeOn ? 'danger' : 'inactive'}">
-          <!-- El freni (P) ikonu -->
-          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M10 15V9h2.5A1.5 1.5 0 0 1 14 10.5v0A1.5 1.5 0 0 1 12.5 12H10" />
-          </svg>
+          <span class="v-icon"><Icon name="car-brake" size="100%" /></span>
         </div>
         <div class="icon-btn {$vehicleLocked ? 'danger' : 'active'}">
-          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <span class="v-icon"><Icon name="car-lock" size="100%" /></span>
         </div>
         <div class="icon-btn {$vehicleSeatbelt ? 'active' : 'danger'}">
-          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M15 2v6h-6V2z"></path><path d="M8 14l8-8"></path></svg>
+          <span class="v-icon"><Icon name="car-seatbelt" size="100%" /></span>
         </div>
         <div class="icon-btn fuel-btn">
-          <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 22v-8c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v8"></path><path d="M11 12v-4c0-2.2-1.8-4-4-4h0c-2.2 0-4 1.8-4 4v4"></path><path d="M15 6h4a2 2 0 0 1 2 2v6l-4 4v4"></path></svg>
-          <div class="fuel-fill" style="height: {$vehicleFuel}%"></div>
+          <span class="v-icon"><Icon name="gas-pump" size="100%" /></span>
+          <div class="fuel-fill" style="transform: scaleY({Math.max(0, Math.min(1, $vehicleFuel / 100))});"></div>
         </div>
       </div>
     </div>
@@ -664,7 +651,17 @@ let messages = $state<ChatMessage[]>([
   .icon-btn.danger .v-icon { color: #f87171; }
   .fuel-btn { position: relative; overflow: hidden; }
   .fuel-btn .v-icon { position: relative; z-index: 2; color: #fff; }
-  .fuel-fill { position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(201, 168, 76, 0.4); z-index: 1; transition: height 0.5s ease; }
+  .fuel-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(201, 168, 76, 0.4);
+    z-index: 1;
+    transform-origin: bottom;
+    transition: transform 0.3s ease;
+  }
 
   /* --- WATERMARK --- */
   .watermark {

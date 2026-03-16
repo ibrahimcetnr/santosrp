@@ -1,6 +1,8 @@
 <script lang="ts">
-        import { onMount } from 'svelte';
+    import { onMount } from 'svelte';
+    import { SvelteMap } from 'svelte/reactivity';
     import { fly } from 'svelte/transition';
+    import Icon from './Icon.svelte';
   import type { ItemDef, InventorySlot } from '../../../../shared/types';
   import { isInventoryOpen, inventoryPayload } from '../store';
 
@@ -24,9 +26,9 @@
   let currentWeight  = $state(0);
   
   let items          = $state<Record<string, ItemDef>>({});
-  let playerSlots    = $state<Map<number, InventorySlot>>(new Map());
+    let playerSlots    = $state(new SvelteMap<number, InventorySlot>());
 
-  let otherSlots     = $state<Map<number, InventorySlot>>(new Map());
+    let otherSlots     = $state(new SvelteMap<number, InventorySlot>());
   let otherName      = $state('');
   let otherMaxWeight = $state(30);
   let otherWeight    = $state(0);
@@ -47,16 +49,7 @@
   // Toplam Gösterilecek Slot Sayısı (Görseldeki gibi kompakt bir grid için 25 veya 30 idealdir, 30 yapıyoruz)
   const TOTAL_SLOTS = 30;
 
-  // ── Yardımcı Fonksiyonlar ──────────────────────────────────────────────────
-  function getImgUrl(itemId: string) {
-    const def = items[itemId];
-    return def ? `./assets/images/icons/items/${def.img}.png` : './assets/images/icons/items/default.png';
-  }
-
-  function handleImgError(e: Event) {
-    const target = e.target as HTMLImageElement;
-    target.src = './assets/images/icons/items/default.png';
-  }
+    // ── Yardımcı Fonksiyonlar ──────────────────────────────────────────────────
 
   function triggerMP(fnName: string, ...args: any[]) {
     if (typeof (window as any).mp !== 'undefined') {
@@ -76,8 +69,8 @@
     const payload = $inventoryPayload as InventoryPayload | null;
     if (!payload) {
       items = {};
-      playerSlots = new Map();
-      otherSlots = new Map();
+            playerSlots = new SvelteMap<number, InventorySlot>();
+            otherSlots = new SvelteMap<number, InventorySlot>();
       hasOther = false;
       return;
     }
@@ -87,12 +80,12 @@
     maxWeight = payload.maxWeight || 30;
     currentWeight = payload.weight || 0;
 
-    const pm = new Map<number, InventorySlot>();
+        const pm = new SvelteMap<number, InventorySlot>();
     for (const slot of payload.slots || []) pm.set(slot.slot, slot);
     playerSlots = pm;
 
     if (payload.otherSlots && payload.otherSlots.length > 0) {
-      const om = new Map<number, InventorySlot>();
+            const om = new SvelteMap<number, InventorySlot>();
       for (const slot of payload.otherSlots) om.set(slot.slot, slot);
       otherSlots = om;
       otherName = payload.otherName || 'Depo / Bagaj';
@@ -100,7 +93,7 @@
       otherWeight = payload.otherWeight || 0;
       hasOther = true;
     } else {
-      otherSlots = new Map();
+            otherSlots = new SvelteMap<number, InventorySlot>();
       hasOther = false;
     }
   });
@@ -207,7 +200,7 @@
         <div class="inventory-panel" transition:fly={{ x: 40, duration: 180 }}>
             <div class="panel-header">
                 <div class="header-title">
-                    <span class="icon">🎒</span> ENVANTER
+                    <span class="icon"><Icon name="backpack" size="1.2vw" /></span> ENVANTER
                 </div>
                 <div class="header-weight">
                     {currentWeight.toFixed(1)} <span style="opacity: 0.5">/ {maxWeight} KG</span>
@@ -215,7 +208,7 @@
             </div>
             
             <div class="weight-bar-bg">
-                <div class="weight-bar-fill" style="width: {(currentWeight / maxWeight) * 100}%"></div>
+                <div class="weight-bar-fill" style="transform: scaleX({Math.max(0, Math.min(1, currentWeight / maxWeight || 0))});"></div>
             </div>
 
             <div class="slot-grid">
@@ -229,10 +222,12 @@
                          oncontextmenu={(e) => entry && openCtx(e, i, 'self')}>
                         
                         {#if entry && def}
-                            <img src={getImgUrl(entry.itemId)} alt={def.name} onerror={handleImgError}
+                            <div class="slot-icon"
                                  draggable="true"
                                  ondragstart={(e) => onDragStart(e, i, 'self')}
                                  ondragend={onDragEnd}>
+                                <Icon name={def.icon || 'default'} size="100%" />
+                            </div>
                             <div class="amount">{entry.amount}</div>
                             <div class="tooltip">{def.name}</div>
                         {/if}
@@ -245,7 +240,7 @@
         <div class="inventory-panel other-panel" transition:fly={{ x: 40, duration: 180 }}>
             <div class="panel-header">
                 <div class="header-title">
-                    <span class="icon">📦</span> {otherName.toUpperCase()}
+                    <span class="icon"><Icon name="box" size="1.2vw" /></span> {otherName.toUpperCase()}
                 </div>
                 <div class="header-weight">
                     {otherWeight.toFixed(1)} <span style="opacity: 0.5">/ {otherMaxWeight} KG</span>
@@ -253,7 +248,7 @@
             </div>
             
             <div class="weight-bar-bg">
-                <div class="weight-bar-fill" style="width: {(otherWeight / otherMaxWeight) * 100}%"></div>
+                <div class="weight-bar-fill" style="transform: scaleX({Math.max(0, Math.min(1, otherWeight / otherMaxWeight || 0))});"></div>
             </div>
 
             <div class="slot-grid">
@@ -267,10 +262,12 @@
                          oncontextmenu={(e) => entry && openCtx(e, i, 'other')}>
                         
                         {#if entry && def}
-                            <img src={getImgUrl(entry.itemId)} alt={def.name} onerror={handleImgError}
+                            <div class="slot-icon"
                                  draggable="true"
                                  ondragstart={(e) => onDragStart(e, i, 'other')}
                                  ondragend={onDragEnd}>
+                                <Icon name={def.icon || 'default'} size="100%" />
+                            </div>
                             <div class="amount">{entry.amount}</div>
                             <div class="tooltip">{def.name}</div>
                         {/if}
@@ -381,9 +378,11 @@
     overflow: hidden;
 }
 .weight-bar-fill {
+    width: 100%;
     height: 100%;
     background: #3b82f6; /* Tatlı bir mavi */
-    transition: width 0.3s ease;
+    transform-origin: left center;
+    transition: transform 0.3s ease;
 }
 .other-panel .weight-bar-fill { background: #10b981; /* Karşı depo için yeşil bar */ }
 
@@ -418,12 +417,20 @@
     opacity: 0.4;
 }
 
-/* Eşya Görseli */
-.slot img {
+/* Eşya İkonu */
+.slot-icon {
     width: 65%;
     height: 65%;
-    object-fit: contain;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
     filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+}
+
+.slot-icon :global(svg) {
+    width: 100%;
+    height: 100%;
 }
 
 /* Miktar Yazısı */
