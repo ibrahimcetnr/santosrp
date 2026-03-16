@@ -68,6 +68,10 @@
     trade:          '⇌',
     taxi:           '🚕',
   };
+
+  onDestroy(() => {
+    delete (window as any).showOffer;
+  });
 </script>
 
 {#if offers.length > 0}

@@ -238,6 +238,9 @@ var init_auth = __esm({
     });
     mp.events.add("client:hideLogin", () => {
       hideLoginUI();
+      if (loginBrowser) {
+        loginBrowser.execute(`window.forceScreen && window.forceScreen('playing')`);
+      }
     });
   }
 });

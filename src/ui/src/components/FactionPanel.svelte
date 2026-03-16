@@ -105,6 +105,7 @@
   ];
 
   const myCharId = $derived(factionData._playerContext?.characterId ?? -1);
+  // svelte-ignore state_referenced_locally
   let settingsDesc = $state((factionData.description as string) || '');
 
   const tabs = $derived([
@@ -129,8 +130,11 @@
   }
 
   // ── Yerel üye/rütbe/divizyon listeleri ─────────────────────────────────
+  // svelte-ignore state_referenced_locally
   let localMembers   = $state<any[]>([...(factionData.members   || [])]);
+  // svelte-ignore state_referenced_locally
   let localRanks     = $state<any[]>([...(factionData.ranks     || [])]);
+  // svelte-ignore state_referenced_locally
   let localDivisions = $state<any[]>([...(factionData.divisions || [])]);
 
   // ── Sıralanmış üye listesi (rütbe 1 = en yüksek) ──────────────────
@@ -381,7 +385,7 @@
           </div>
           <div class="info-row">
             <span class="info-label">Birlik Açıklaması</span>
-            <span class="info-value" style="white-space:pre-wrap; line-height:1.5;">{factionData.description || 'Bu birliğin henüz bir açıklaması bulunmuyor.'}</span>
+            <span class="info-value faction-description">{factionData.description || 'Bu birliğin henüz bir açıklaması bulunmuyor.'}</span>
           </div>
         </div>
           <div class="info-row">
@@ -438,7 +442,7 @@
               {#if factionData.brokerFee}
                 ₺{Number(factionData.brokerFee).toLocaleString('tr-TR')}
               {:else}
-                <span style="color:#64748b">Yok</span>
+                <span class="muted-text">Yok</span>
               {/if}
             </span>
           </div>
@@ -527,7 +531,7 @@
     {:else if activeTab === 'members'}
       <section class="tab-section">
         <div class="members-header">
-          <h2 class="tab-title" style="margin:0; border:none; padding:0;">Üyeler
+          <h2 class="tab-title members-title">Üyeler
             <span class="member-count">{(factionData.members || []).length}</span>
           </h2>
           <div class="btn-group">
@@ -701,13 +705,13 @@
           </div>
         {:else}
           <div class="member-list">
-            <div class="list-header" style="grid-template-columns: 1fr 140px 140px;">
+            <div class="list-header vehicle-grid">
               <span>Model</span>
               <span>Plaka</span>
               <span>Durum</span>
             </div>
             {#each (factionData.vehicles || []) as vehicle}
-              <div class="member-row" style="grid-template-columns: 1fr 140px 140px;">
+              <div class="member-row vehicle-grid">
                 <span class="member-name">{vehicle.model ?? '—'}</span>
                 <span class="member-div">{vehicle.plate ?? '—'}</span>
                 <span class="member-rank-tag">{vehicle.status ?? 'Aktif'}</span>
@@ -1144,13 +1148,7 @@
     margin: 0;
   }
 
-  .sub-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
+  
 
   /* ── Info Grid ─────────────────────────────────────────── */
   .info-grid {
@@ -1222,11 +1220,7 @@
   }
 
   /* Onaylı Birlik — her zaman yeşil */
-  .badge-green {
-    background: rgba(52, 211, 153, 0.1);
-    color: #34d399;
-    border: 1px solid rgba(52, 211, 153, 0.2);
-  }
+  
 
   /* Onay Badgeleri (dinamik renk inline style ile) */
   .approval-badge {
@@ -1242,11 +1236,7 @@
   }
 
   /* Silah İzni — her zaman mavi */
-  .badge-blue {
-    background: rgba(96, 165, 250, 0.1);
-    color: #60a5fa;
-    border: 1px solid rgba(96, 165, 250, 0.2);
-  }
+  
 
   .badge-gray {
     background: rgba(255, 255, 255, 0.05);
@@ -1289,11 +1279,7 @@
     flex-wrap: wrap;
   }
 
-  .action-bar-bottom {
-    margin-top: 4px;
-    padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.03);
-  }
+  
 
   /* Members header bar */
   .members-header {
@@ -1374,15 +1360,8 @@
   }
 
   /* Turuncu — düzenleme */
-  .btn-warning {
-    background: rgba(251, 191, 36, 0.1);
-    color: #fbbf24;
-    border-color: rgba(251, 191, 36, 0.2);
-  }
-  .btn-warning:hover {
-    background: rgba(251, 191, 36, 0.2);
-    border-color: rgba(251, 191, 36, 0.35);
-  }
+  
+  
 
   /* Mavi — birincil eylemler */
   .btn-primary {

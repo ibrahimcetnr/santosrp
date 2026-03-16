@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { ItemDef, InventorySlot } from '../../../../shared/types';
 
 
@@ -189,7 +189,14 @@
       }
     };
     window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+    };
+  });
+
+  onDestroy(() => {
+    delete (window as any).openInventory;
+    delete (window as any).closeInventory;
   });
 </script>
 

@@ -1,12 +1,14 @@
 /**
  * SantosRP — Vehicle Damage Handler (Server-Side)
  * Araç kaporta hasarını dinler, şoförün client'ına deformasyon ölçümü tetikletir.
- */import { BinarySerializer } from '../shared/BinarySerializer';
+ */
+import { safeEvent, isPlayerValid } from './utils/safeEvent';
+import { BinarySerializer } from '../shared/BinarySerializer';
 export function initVehicleDamageEvents(): void {
     // Client tarafı kendi setInterval'i ile hasarı takip ediyor;
     // server 'vehicleDamage' eventi artık kullanılmıyor.
 
-    mp.events.add(
+    safeEvent(
         's:rvd',
         (player: PlayerMp, vehicle: VehicleMp, encoded: string) => {
             if (typeof encoded !== 'string' || encoded.length > 512) return;

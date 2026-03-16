@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
 
   // Props
   import type { ICommand } from '../../../../shared/types';
@@ -441,6 +441,21 @@ window.chv = (data: {
     return () => {
       window.removeEventListener('message', handleSyncTime);
     };
+  });
+
+  onDestroy(() => {
+    delete (window as any).syncMinimapData;
+    delete (window as any).hudInit;
+    delete (window as any).hudUpdateLocation;
+    delete (window as any).hudUpdateMapPosition;
+    delete (window as any).hudUpdateTime;
+    delete (window as any).hudUpdateMoney;
+    delete (window as any).openChat;
+    delete (window as any).addChatMessage;
+    delete (window as any).chatAPI;
+    delete (window as any).hudMessage;
+    delete (window as any).chv;
+    delete (window as any).updateCommandList;
   });
 </script>
 

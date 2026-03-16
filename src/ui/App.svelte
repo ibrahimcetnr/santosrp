@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { activeScreen, health, playerMoney, charName, playerId } from './src/store';
   import CharacterSelect from './src/components/CharacterSelect.svelte';
   import CharacterCreator from './src/components/CharacterCreator.svelte';
   import HUD from './src/components/HUD/HUD.svelte';
@@ -11,14 +12,14 @@
   let password = $state('');
   let errorMessage = $state('');
   let isLoading = $state(false);
-  let view = $state<'login' | 'characterSelect' | 'characterCreator' | 'playing'>('login');
+  
   let userCharacters = $state<any[]>([]);
   let pendingCharacterId = $state<number>(0);
   let pendingGender = $state<number>(0);
   let pendingCharData = $state<string | null>(null);
   let myAdminLevel = $state(0);
   let commandList = $state<any[]>([]);
-  let passwordInput: HTMLInputElement;
+  let passwordInput: HTMLInputElement | undefined = $state();
   let rememberMe = $state(false);
   let isFactionPanelOpen = $state(false);
   let currentFactionData = $state<any>(null);
@@ -39,7 +40,7 @@
       setTimeout(() => {
         isLoading = false;
         myAdminLevel = 10;
-        view = 'characterSelect';
+        $activeScreen = 'characterSelect';
       }, 1000);
     }
   }
@@ -53,6 +54,10 @@
   }
 
   onMount(() => {
+    window.forceScreen = (screen: string) => {
+      $activeScreen = screen;
+    };
+
     window.setSavedCredentials = (user: string, pass: string) => {
       username = user;
       password = pass;
@@ -80,7 +85,7 @@
         userCharacters = charactersJson as any;
       }
       
-      view = 'characterSelect';
+      $activeScreen = 'characterSelect';
     };
 
     window.openFactionUI = (dataJson: string) => {
@@ -124,7 +129,7 @@
   }
 
   function onCancelCreator() {
-    view = 'characterSelect';
+    $activeScreen = 'characterSelect';
     if (typeof (window as any).mp !== 'undefined') {
       (window as any).mp.trigger('client:cancelCreator');
     }
@@ -135,18 +140,29 @@
       pendingCharacterId = char.id;
       pendingGender = char.gender ?? 0;
       pendingCharData = char.charData ?? null;
-      view = 'characterCreator';
+      $activeScreen = 'characterCreator';
       if (typeof (window as any).mp !== 'undefined') {
         (window as any).mp.trigger('client:startCharacterCreator', char.id, char.gender ?? 0, char.charData ?? null);
       }
     } else {
-      view = 'playing';
+      $activeScreen = 'playing';
     }
   }
+
+  onDestroy(() => {
+    delete (window as any).forceScreen;
+    delete (window as any).setSavedCredentials;
+    delete (window as any).onLoginError;
+    delete (window as any).onLoginSuccess;
+    delete (window as any).openFactionUI;
+    delete (window as any).patchFactionUI;
+    delete (window as any).closeFactionUI;
+    delete (window as any).updateCommandList;
+  });
 </script>
 
-{#if view === 'login'}
-  <main class:fade-out={view !== 'login'}>
+{#if $activeScreen === 'login'}
+  <main class:fade-out={$activeScreen !== 'login'}>
     <div class="login-box">
       <!-- Logo / Başlık -->
       <div class="logo-area">
@@ -217,11 +233,11 @@
       <p class="info-text">Hesap oluşturmak için web panelini ziyaret edin.</p>
     </div>
   </main>
-{:else if view === 'characterSelect'}
+{:else if $activeScreen === 'characterSelect'}
   <CharacterSelect {onPlay} characters={userCharacters} />
-{:else if view === 'characterCreator'}
+{:else if $activeScreen === 'characterCreator'}
   <CharacterCreator characterId={pendingCharacterId} gender={pendingGender} charData={pendingCharData} onCancel={onCancelCreator} />
-{:else if view === 'playing'}
+{:else if $activeScreen === 'playing'}
   <HUD {myAdminLevel} commands={commandList} />
   <OfferModal />
   <Inventory />
@@ -231,10 +247,39 @@
 {/if}
 
 <style>
+  :global(:root) {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-panel: rgba(15, 23, 42, 0.95);
+    --bg-modal: #0e0e16;
+    
+    --text-main: #ffffff;
+    --text-muted: #94a3b8;
+    --text-dark: #64748b;
+    --text-danger: #ef4444;
+    --text-success: #10b981;
+
+    --accent-color: #3b82f6;
+    --accent-glow: rgba(59, 130, 246, 0.3);
+    
+    --color-primary: #3b82f6;
+    --color-secondary: #c9a84c; /* Goldish for CC */
+    --color-secondary-hover: #e2c05a;
+    --color-danger: #ef4444;
+    --color-danger-hover: #f87171;
+    --color-success: #10b981;
+    --color-success-hover: #34d399;
+    
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    
+    --font-primary: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+
   :global(*, *::before, *::after) {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    font-family: var(--font-primary);
   }
 
   :global(body) {

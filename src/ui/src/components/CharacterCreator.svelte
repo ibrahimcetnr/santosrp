@@ -23,7 +23,7 @@
 
   // ── Genetik ──────────────────────────────────────
   // Cinsiyet DB'den gelir, değiştirilemez
-  const gender = genderProp;
+  const gender = $derived(genderProp);
   let mother    = $state(0);
   let father    = $state(0);
   let shapeMix  = $state(0.5);
@@ -754,7 +754,7 @@
             <label>Stil <span class="val">{makeupStyle === 255 ? '—' : makeupStyle}</span></label>
             <input type="range" min="0" max="74" bind:value={makeupStyle}>
           </div>
-          <div class="field" style="padding-top:6px">
+          <div class="field field-checkbox">
             <label class="toggle-row">
               <input type="checkbox" bind:checked={makeupOriginalColor}>
               <span>Orijinal Renk <span class="hint">(renk basma — joker tarzı)</span></span>
@@ -782,6 +782,7 @@
 </div><!-- /creator-wrapper -->
 
 <style>
+  .field-checkbox { padding-top: 6px; }
   /* ── Genel ─────────────────────────────────────── */
   :global(*) { box-sizing: border-box; }
   :global(body) { user-select: none !important; -webkit-user-select: none !important; }
@@ -803,7 +804,7 @@
     left: 36px;
     background: rgba(8, 8, 14, 0.88);
     border: 1px solid rgba(255,255,255,0.07);
-    border-left: 3px solid #c9a84c;
+    border-left: 3px solid var(--color-secondary);
     padding: 14px 18px;
     border-radius: 8px;
     pointer-events: none;
@@ -814,7 +815,7 @@
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 2px;
-    color: #c9a84c;
+    color: var(--color-secondary);
     margin-bottom: 10px;
     text-transform: uppercase;
   }
@@ -883,8 +884,8 @@
   .nav-btn:hover { background: rgba(255,255,255,0.04); color: #aaa; }
   .nav-btn.active {
     background: rgba(201,168,76,0.08);
-    border-left-color: #c9a84c;
-    color: #c9a84c;
+    border-left-color: var(--color-secondary);
+    color: var(--color-secondary);
   }
   .nav-icon { font-size: 22px; line-height: 1; }
   .nav-label { font-size: 11px; font-weight: 600; letter-spacing: 0.3px; text-align: center; line-height: 1.2; }
@@ -892,9 +893,9 @@
   .flex-spacer { flex: 1; }
 
   .finish-btn {
-    background: #c9a84c;
+    background: var(--color-secondary);
     border: none;
-    color: #0a0a0a;
+    color: var(--bg-primary);
     cursor: pointer;
     font-weight: 800;
     padding: 18px 6px;
@@ -906,7 +907,7 @@
     letter-spacing: 1px;
     transition: background 0.2s;
   }
-  .finish-btn:hover { background: #e2c05a; }
+  .finish-btn:hover { background: var(--color-secondary-hover); }
   .finish-btn span:first-child { font-size: 18px; }
 
   .cancel-btn {
@@ -939,7 +940,7 @@
     border-radius: 12px;
   }
   .confirm-box {
-    background: #141414;
+    background: var(--bg-secondary);
     border: 1px solid rgba(201,168,76,0.3);
     border-radius: 10px;
     padding: 28px 32px;
@@ -965,7 +966,7 @@
     gap: 10px;
   }
   .confirm-yes {
-    background: #b33a3a;
+    background: var(--color-danger);
     border: none;
     color: #fff;
     border-radius: 6px;
@@ -975,7 +976,7 @@
     font-size: 13px;
     transition: background 0.2s;
   }
-  .confirm-yes:hover { background: #d44444; }
+  .confirm-yes:hover { background: var(--color-danger-hover); }
   .confirm-no {
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.12);
@@ -1002,7 +1003,7 @@
   .section-title {
     font-size: 17px;
     font-weight: 700;
-    color: #c9a84c;
+    color: var(--color-secondary);
     letter-spacing: 1.5px;
     text-transform: uppercase;
     margin: 0 0 16px 0;
@@ -1088,7 +1089,7 @@
   .val {
     font-size: 13px;
     font-weight: 700;
-    color: #c9a84c;
+    color: var(--color-secondary);
     text-transform: none;
     letter-spacing: 0;
   }
@@ -1130,7 +1131,7 @@
   .feat-val {
     font-size: 12px;
     font-weight: 700;
-    color: #c9a84c;
+    color: var(--color-secondary);
     text-align: right;
     min-width: 28px;
   }
@@ -1152,7 +1153,7 @@
     width: 17px;
     height: 17px;
     border-radius: 50%;
-    background: #c9a84c;
+    background: var(--color-secondary);
     border: 2px solid rgba(255,255,255,0.9);
     cursor: pointer;
     box-shadow: 0 0 8px rgba(201,168,76,0.55);
@@ -1161,19 +1162,8 @@
   input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.25); }
 
   /* ── Select ───────────────────────────────────── */
-  select {
-    width: 100%;
-    padding: 11px 14px;
-    background: rgba(0,0,0,0.6);
-    border: 1px solid rgba(255,255,255,0.08);
-    color: #e8e8e8;
-    border-radius: 8px;
-    font-size: 14px;
-    outline: none;
-    cursor: pointer;
-    transition: border-color 0.2s;
-  }
-  select:focus { border-color: #c9a84c; }
+  
+  
 
   /* ── Reset badge ──────────────────────────────── */
   .reset-badge {
@@ -1217,8 +1207,8 @@
     transition: background 0.2s, color 0.2s;
   }
   .topbar-btn:hover { background: rgba(255,255,255,0.10); color: #eee; }
-  .fc-btn { border-color: rgba(201,168,76,0.25); color: #c9a84c; }
-  .fc-btn:hover { background: rgba(201,168,76,0.12); color: #e2c05a; }
+  .fc-btn { border-color: rgba(201,168,76,0.25); color: var(--color-secondary); }
+  .fc-btn:hover { background: rgba(201,168,76,0.12); color: var(--color-secondary-hover); }
 
   /* ── Panel Body ────────────────────────────────── */
   .panel-body {
@@ -1239,7 +1229,7 @@
     border-radius: 12px;
   }
   .facecc-box {
-    background: #0e0e16;
+    background: var(--bg-modal);
     border: 1px solid rgba(201,168,76,0.25);
     border-radius: 12px;
     padding: 22px 24px;
@@ -1257,7 +1247,7 @@
     font-size: 13px;
     font-weight: 800;
     letter-spacing: 1.5px;
-    color: #c9a84c;
+    color: var(--color-secondary);
     text-transform: uppercase;
   }
   .facecc-close {
@@ -1290,7 +1280,7 @@
     transition: all 0.2s;
   }
   .facecc-tabs button:hover { background: rgba(255,255,255,0.08); color: #aaa; }
-  .facecc-tabs button.active { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.35); color: #c9a84c; }
+  .facecc-tabs button.active { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.35); color: var(--color-secondary); }
   .facecc-desc { font-size: 11px; color: #666; line-height: 1.5; margin: 0; }
   .facecc-code {
     width: 100%;
@@ -1298,7 +1288,7 @@
     background: rgba(0,0,0,0.5);
     border: 1px solid rgba(255,255,255,0.07);
     border-radius: 6px;
-    color: #c9a84c;
+    color: var(--color-secondary);
     font-size: 11px;
     font-family: 'Courier New', monospace;
     padding: 10px;
@@ -1311,7 +1301,7 @@
   .facecc-action-btn {
     background: rgba(201,168,76,0.12);
     border: 1px solid rgba(201,168,76,0.3);
-    color: #c9a84c;
+    color: var(--color-secondary);
     padding: 10px 16px;
     border-radius: 7px;
     font-size: 12px;
@@ -1320,7 +1310,7 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-  .facecc-action-btn:hover { background: rgba(201,168,76,0.25); color: #e2c05a; }
+  .facecc-action-btn:hover { background: rgba(201,168,76,0.25); color: var(--color-secondary-hover); }
   .facecc-apply { background: rgba(50,180,100,0.12); border-color: rgba(50,180,100,0.3); color: #5ec98a; }
   .facecc-apply:hover { background: rgba(50,180,100,0.25); color: #7de0a8; }
   .facecc-error { font-size: 11px; color: #ff7070; margin: 0; }
@@ -1337,7 +1327,7 @@
   .toggle-row input[type="checkbox"] {
     width: 15px;
     height: 15px;
-    accent-color: #c9a84c;
+    accent-color: var(--color-secondary);
     cursor: pointer;
     flex-shrink: 0;
   }

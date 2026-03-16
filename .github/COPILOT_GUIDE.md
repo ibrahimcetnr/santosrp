@@ -75,6 +75,8 @@ cmdHandler.registerCommand('ornek', {
     }
 });
 6. Veritabanı ve Optimizasyon (PostgreSQL)
+- **Veritabanı Yapısı (CRITICAL):** SQL sorgusu yazmadan önce KESİNLİKLE `.github/` altındaki export klasörüne (örneğin `.github/sql/`) bak. Orada birden fazla dosya varsa, her zaman **en güncel (en son tarihli)** SQL export dosyasını oku ve tablo/sütun adlarını oradan teyit et. Asla veritabanı sütunu uydurma.
+
 Parametreli Sorgular ZORUNLUDUR: Veritabanı (src/server/db.ts) işlemlerinde SQL Injection koruması için her zaman $ operatörü ile parametreli sorgular kullanın. db.query('SELECT * FROM accounts WHERE username = $1', [username]);
 
 Cache ve Save Queue (Kritik):

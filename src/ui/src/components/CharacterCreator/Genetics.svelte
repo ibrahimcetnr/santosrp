@@ -86,7 +86,7 @@
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: #c9a84c;
+    color: var(--color-secondary);
   }
 
   .control-group {
@@ -121,7 +121,7 @@
     appearance: none;
     width: 16px;
     height: 16px;
-    background: #c9a84c;
+    background: var(--color-secondary);
     border-radius: 50%;
     cursor: pointer;
     transition: transform 0.2s;

@@ -266,4 +266,7 @@ mp.events.add('client:createSelectCamera', () => {
 
 mp.events.add('client:hideLogin', () => {
   hideLoginUI();
+  if (loginBrowser) {
+    loginBrowser.execute(`window.forceScreen && window.forceScreen('playing')`);
+  }
 });

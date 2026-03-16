@@ -41,11 +41,11 @@
       onPlay(currentChar); // Gerçek ID'si ile CharacterCreator'a geçer
       return;
     }
-    // Karakter zaten yaratılmışsa
+    // Karakter zaten yaratılmışsa önce UI'ı geçir, sonra server'a bildir
+    onPlay(currentChar); // HUD'a geçer
     if (typeof (window as any).mp !== 'undefined') {
       (window as any).mp.trigger('client:playCharacter', currentChar.id);
     }
-    onPlay(currentChar); // HUD'a geçer
   }
 
   onMount(() => {
@@ -159,13 +159,7 @@
     z-index: 10;
   }
 
-  .char-info p {
-    color: #ccc;
-    font-size: 18px;
-    text-shadow: 0 2px 4px rgba(0,0,0,1);
-    margin-bottom: 20px;
-    z-index: 10;
-  }
+  
 
   .play-btn {
     z-index: 10;

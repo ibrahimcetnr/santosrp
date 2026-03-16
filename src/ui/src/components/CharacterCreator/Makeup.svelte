@@ -170,7 +170,7 @@
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: #c9a84c;
+    color: var(--color-secondary);
   }
 
   .control-group {
@@ -209,8 +209,8 @@
 
   .toggle-group button.active {
     background: rgba(201, 168, 76, 0.2);
-    border-color: #c9a84c;
-    color: #c9a84c;
+    border-color: var(--color-secondary);
+    color: var(--color-secondary);
   }
 
   input[type="range"] {
@@ -226,7 +226,7 @@
     appearance: none;
     width: 16px;
     height: 16px;
-    background: #c9a84c;
+    background: var(--color-secondary);
     border-radius: 50%;
     cursor: pointer;
     transition: transform 0.2s;
