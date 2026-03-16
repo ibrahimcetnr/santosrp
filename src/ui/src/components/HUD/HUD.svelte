@@ -1,38 +1,38 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
+  import {
+    charName,
+    playerId,
+    playerMoney,
+    locationName,
+    directionName,
+    minimapBottom,
+    minimapLeft,
+    minimapWidth,
+    inVehicle,
+    vehicleSpeed,
+    vehicleFuel,
+    vehicleEngineOn,
+    vehicleLocked,
+    vehicleSeatbelt,
+    vehicleLightsOn,
+    vehicleParkingBrakeOn
+  } from '../../store';
 
   // Props
   import type { ICommand } from '../../../../shared/types';
   let { myAdminLevel = 0, commands = [] } = $props<{ myAdminLevel?: number; commands?: ICommand[] }>();
 
   // --- STATE: HUD Verileri ---
-  let charName    = $state('Oyuncu');        // hudInit ile gelir
-  let playerId    = $state(0);              // RAGE player.id
-  let location    = $state('Los Santos');
-  let direction   = $state('K');
   let serverDate  = $state('--.--.----');
   let serverTime  = $state('--:--');
-  let cashMoney   = $state('0$');
   let currentWeapon = $state('');           // Şimdilik devre dışı
-  let mapAnchor = $state({ bottom: 184, left: 24, width: 300 });
   let isWindowLoaded = $state(false);
-  
-  // Dinamik minimap position state
-  let mapBottom = $state(184);
-  let mapLeft = $state(24);
   
   // Time offset for server sync
   let timeOffset = $state(0);
 
-  // --- STATE: Araç Verileri --- (Araç sistemi hazır olunca aktif edilecek)
-  let inVehicle   = $state(false); // DISABLED: araç veritabanı hazır değil
-  let vehicleSpeed = $state(124);
-  let isEngineOn = $state(true);
-  let isLocked = $state(false);
-  let hasSeatbelt = $state(true);
-  let fuelLevel = $state(65);
-  let isLightsOn = $state(false);
-  let isParkingBrakeOn = $state(false);
+  const cashMoney = $derived(`${$playerMoney.toLocaleString('tr-TR')}$`);
 
   // --- STATE: Chatbox Verileri ---
   type ChatSegment = { text: string; color: string | null };
@@ -272,7 +272,7 @@ let messages = $state<ChatMessage[]>([
             window.mp.invoke('chatMessage', msg);
           }
         } else {
-          addChatMessage(`${charName}: ${msg}`);
+          addChatMessage(`${$charName}: ${msg}`);
         }
       }
       chatInput    = '';
@@ -323,34 +323,6 @@ let messages = $state<ChatMessage[]>([
     updateSyncedTime();
     const timeInterval = setInterval(updateSyncedTime, 1000);
 
-    // ── Server/Client'tan gelen HUD güncellemeleri ──────────────────────────────
-    window.syncMinimapData = (bottom: number, left: number, width: number) => {
-      mapAnchor = { bottom, left, width };
-    };
-
-    window.hudInit = (data: { charName: string; playerId: number; money: string }) => {
-      charName  = data.charName;
-      playerId  = data.playerId;
-      cashMoney = data.money;
-    };
-
-    window.hudUpdateLocation = (data: { location: string; direction: string }) => {
-      if (data.location) location = data.location;
-      direction = data.direction;
-    };
-
-    // Dinamik minimap pozisyon güncelleme
-    window.hudUpdateMapPosition = (data: { bottom: number; left: number }) => {
-      mapBottom = data.bottom;
-      mapLeft = data.left;
-    };
-
-    window.hudUpdateTime = (_data: { time: string; date: string }) => {};
-
-    window.hudUpdateMoney = (data: { money: string }) => {
-      cashMoney = data.money;
-    };
-
     window.openChat = () => {
       isChatActive = true;
       window.mp?.invoke('focus', true);
@@ -376,35 +348,6 @@ let messages = $state<ChatMessage[]>([
       addChatMessage(data.text);
     };
 
-    // Araç gösterge paneli güncellemesi (hud.ts'den 100ms'de bir gelir)
-    // f = bitmask: bit0=engine, bit1=locked, bit2=seatbelt (3 boolean → 1 int)
-window.chv = (data: {
-      inVehicle?: boolean;  // Artık opsiyonel (undefined gelebilir)
-      speed?: number;
-      fuel?: number;
-      f?: number;           
-      lightsOn?: boolean;
-      parkingBrakeOn?: boolean;
-    }) => {
-      // 1. inVehicle verisi pakette varsa güncelle, yoksa mevcut durumu (true) koru
-      if (data.inVehicle !== undefined) {
-        inVehicle = data.inVehicle;
-      }
-      
-      // 2. data.inVehicle yerine state olan inVehicle'ı kontrol et
-      if (!inVehicle) return;
-
-      vehicleSpeed = data.speed ?? vehicleSpeed;
-      fuelLevel    = data.fuel  ?? fuelLevel;
-      if (data.f !== undefined) {
-        isEngineOn  = (data.f & 1) !== 0;
-        isLocked    = (data.f & 2) !== 0;
-        hasSeatbelt = (data.f & 4) !== 0;
-      }
-      isLightsOn       = data.lightsOn      ?? isLightsOn;
-      isParkingBrakeOn = data.parkingBrakeOn ?? isParkingBrakeOn;
-    };
-
     // Komut listesi güncelleme
     window.updateCommandList = (commands: Command[]) => {
       allCommands = commands;
@@ -415,16 +358,10 @@ window.chv = (data: {
       clearInterval(timeInterval);
       window.removeEventListener('keydown', handleChatKeydown);
       window.mp?.events?.remove('chat:push', chatHandler);
-      delete window.hudInit;
-      delete window.hudUpdateLocation;
-      delete window.hudUpdateTime;
-      delete window.hudUpdateMoney;
-      delete window.hudUpdateMapPosition;
       delete window.openChat;
       delete window.hudMessage;
       delete window.chatAPI;
       delete window.updateCommandList;
-      delete window.chv;
     };
   });
   
@@ -444,17 +381,10 @@ window.chv = (data: {
   });
 
   onDestroy(() => {
-    delete (window as any).syncMinimapData;
-    delete (window as any).hudInit;
-    delete (window as any).hudUpdateLocation;
-    delete (window as any).hudUpdateMapPosition;
-    delete (window as any).hudUpdateTime;
-    delete (window as any).hudUpdateMoney;
     delete (window as any).openChat;
     delete (window as any).addChatMessage;
     delete (window as any).chatAPI;
     delete (window as any).hudMessage;
-    delete (window as any).chv;
     delete (window as any).updateCommandList;
   });
 </script>
@@ -500,15 +430,15 @@ window.chv = (data: {
     {/if}
   </div>
 
-  <div class="minimap-info-container" style="bottom: {mapBottom}px; left: {mapLeft}px; width: {mapAnchor.width}px;">
+  <div class="minimap-info-container" style="bottom: {$minimapBottom}px; left: {$minimapLeft}px; width: {$minimapWidth}px;">
     <div class="map-box split-box">
       <div class="map-left location-part">
         <svg class="map-icon text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-        <span class="map-value">{location}</span>
+        <span class="map-value">{$locationName}</span>
       </div>
       <div class="map-separator"></div>
       <div class="map-right direction-part">
-        <span class="map-value text-accent">{direction}</span>
+        <span class="map-value text-accent">{$directionName}</span>
       </div>
     </div>
 
@@ -546,17 +476,14 @@ window.chv = (data: {
     -->
   </div>
 
-  {#if inVehicle}
-    <div class="vehicle-container">
-      {#if isEngineOn}
-        <div class="stat-box speed-box">
-          <span class="speed-val">{vehicleSpeed.toString().padStart(3, '0')}</span>
-          <span class="speed-unit">KM/H</span>
-        </div>
-      {/if}
+  <div class="vehicle-container" class:hidden={!$inVehicle}>
+      <div class="stat-box speed-box" class:hidden={!$vehicleEngineOn}>
+        <span class="speed-val">{$vehicleSpeed.toString().padStart(3, '0')}</span>
+        <span class="speed-unit">KM/H</span>
+      </div>
 
       <div class="vehicle-icon-bar">
-        <div class="icon-btn {isLightsOn ? 'active' : 'inactive'}">
+        <div class="icon-btn {$vehicleLightsOn ? 'active' : 'inactive'}">
           <!-- Lightbulb (far) ikonu -->
           <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 18h6" />
@@ -564,28 +491,27 @@ window.chv = (data: {
             <path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.9 2.5 5.1C8.2 15 9 16.5 9 18h6c0-1.5.8-3 1.5-3.9C18 12.9 19 11 19 9a7 7 0 0 0-7-7z" />
           </svg>
         </div>
-        <div class="icon-btn {isParkingBrakeOn ? 'danger' : 'inactive'}">
+        <div class="icon-btn {$vehicleParkingBrakeOn ? 'danger' : 'inactive'}">
           <!-- El freni (P) ikonu -->
           <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10" />
             <path d="M10 15V9h2.5A1.5 1.5 0 0 1 14 10.5v0A1.5 1.5 0 0 1 12.5 12H10" />
           </svg>
         </div>
-        <div class="icon-btn {isLocked ? 'danger' : 'active'}">
+        <div class="icon-btn {$vehicleLocked ? 'danger' : 'active'}">
           <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
         </div>
-        <div class="icon-btn {hasSeatbelt ? 'active' : 'danger'}">
+        <div class="icon-btn {$vehicleSeatbelt ? 'active' : 'danger'}">
           <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M15 2v6h-6V2z"></path><path d="M8 14l8-8"></path></svg>
         </div>
         <div class="icon-btn fuel-btn">
           <svg class="v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 22v-8c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v8"></path><path d="M11 12v-4c0-2.2-1.8-4-4-4h0c-2.2 0-4 1.8-4 4v4"></path><path d="M15 6h4a2 2 0 0 1 2 2v6l-4 4v4"></path></svg>
-          <div class="fuel-fill" style="height: {fuelLevel}%"></div>
+          <div class="fuel-fill" style="height: {$vehicleFuel}%"></div>
         </div>
       </div>
     </div>
-  {/if}
 
-  <div class="watermark">santos-roleplay.com | {charName} ({playerId})</div>
+  <div class="watermark">santos-roleplay.com | {$charName} ({$playerId})</div>
 </div>
 
 <style>
@@ -744,5 +670,9 @@ window.chv = (data: {
   .watermark {
     position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
     font-size: 11px; color: rgba(255, 255, 255, 0.4); font-weight: 500; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8); pointer-events: none;
+  }
+
+  .hidden {
+    display: none !important;
   }
 </style>

@@ -347,7 +347,7 @@ export function registerAuthEvents(): void {
   // ── Karakter seçilip oyuna başlandığında ────────────────────────────────────
   safeEvent('server:playCharacter', async (player: PlayerMp, charId: number) => {
     if (!isPlayerValid(player)) return;
-    const accountId = player.accountId;
+    const accountId = player.accountId || playerIdToAccountId.get(player.id) || getSession(player)?.accountId;
     if (!accountId) return; // Giriş yapmamış
 
     // Yetkilendirme + karakter verisi
@@ -443,7 +443,7 @@ export function registerAuthEvents(): void {
 
   safeEvent('server:saveCharacterAppearance', async (player: PlayerMp, charId: number, appearanceStr: string) => {
     if (!isPlayerValid(player)) return;
-    const accountId = player.accountId;
+    const accountId = player.accountId || playerIdToAccountId.get(player.id) || getSession(player)?.accountId;
     if (!accountId) return;
 
     // Boyut doğrulama

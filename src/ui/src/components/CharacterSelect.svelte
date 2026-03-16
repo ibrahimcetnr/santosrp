@@ -11,6 +11,7 @@
   // Sadece veritabanından gelen GERÇEK karakterleri listele
   let displayChars = $derived(characters);
   let currentIndex = $state(0);
+  let isStartingPlay = $state(false);
 
   let currentChar = $derived(displayChars[currentIndex]);
 
@@ -35,12 +36,14 @@
 
   function handlePlay() {
     if (!currentChar) return;
+    if (isStartingPlay) return;
 
     // Karakter onaylanmış ama yüzü yapılmamışsa (created === 0)
     if (currentChar.created === 0) {
       onPlay(currentChar); // Gerçek ID'si ile CharacterCreator'a geçer
       return;
     }
+    isStartingPlay = true;
     // Karakter zaten yaratılmışsa önce UI'ı geçir, sonra server'a bildir
     onPlay(currentChar); // HUD'a geçer
     if (typeof (window as any).mp !== 'undefined') {
@@ -68,8 +71,12 @@
     <h2>{currentChar?.name.replace(/_/g, ' ') ?? ''}</h2>
 
     <div class="glow-box"></div>
-    <button class="play-btn" onclick={handlePlay}>
-      {currentChar?.created === 0 ? 'GÖRÜNÜMÜNÜ OLUŞTUR' : 'OYNA'}
+    <button class="play-btn" onclick={handlePlay} disabled={isStartingPlay}>
+      {#if isStartingPlay}
+        YÜKLENİYOR...
+      {:else}
+        {currentChar?.created === 0 ? 'GÖRÜNÜMÜNÜ OLUŞTUR' : 'OYNA'}
+      {/if}
     </button>
   </div>
 
@@ -179,5 +186,12 @@
   .play-btn:hover {
     transform: translateY(-2px) scale(1.05);
     box-shadow: 0 6px 24px rgba(201, 168, 76, 0.6);
+  }
+
+  .play-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 4px 18px rgba(201, 168, 76, 0.3);
   }
 </style>

@@ -342,7 +342,7 @@ function registerAuthEvents() {
     (0, safeEvent_1.safeEvent)('server:playCharacter', async (player, charId) => {
         if (!(0, safeEvent_1.isPlayerValid)(player))
             return;
-        const accountId = player.accountId;
+        const accountId = player.accountId || playerIdToAccountId.get(player.id) || (0, playerRegistry_1.getSession)(player)?.accountId;
         if (!accountId)
             return; // Giriş yapmamış
         // Yetkilendirme + karakter verisi
@@ -425,7 +425,7 @@ function registerAuthEvents() {
     (0, safeEvent_1.safeEvent)('server:saveCharacterAppearance', async (player, charId, appearanceStr) => {
         if (!(0, safeEvent_1.isPlayerValid)(player))
             return;
-        const accountId = player.accountId;
+        const accountId = player.accountId || playerIdToAccountId.get(player.id) || (0, playerRegistry_1.getSession)(player)?.accountId;
         if (!accountId)
             return;
         // Boyut doğrulama

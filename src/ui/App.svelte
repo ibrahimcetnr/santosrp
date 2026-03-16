@@ -1,6 +1,26 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { activeScreen, health, playerMoney, charName, playerId } from './src/store';
+  import {
+    activeScreen,
+    playerMoney,
+    charName,
+    playerId,
+    locationName,
+    directionName,
+    minimapBottom,
+    minimapLeft,
+    minimapWidth,
+    inVehicle,
+    vehicleSpeed,
+    vehicleFuel,
+    vehicleEngineOn,
+    vehicleLocked,
+    vehicleSeatbelt,
+    vehicleLightsOn,
+    vehicleParkingBrakeOn,
+    isInventoryOpen,
+    inventoryPayload
+  } from './src/store';
   import CharacterSelect from './src/components/CharacterSelect.svelte';
   import CharacterCreator from './src/components/CharacterCreator.svelte';
   import HUD from './src/components/HUD/HUD.svelte';
@@ -53,9 +73,91 @@
     }
   }
 
+  function parseMoney(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const numeric = Number(String(value ?? '0').replace(/[^0-9-]/g, ''));
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  function safeParseJson<T>(input: unknown, fallback: T): T {
+    if (typeof input !== 'string') {
+      return (input as T) ?? fallback;
+    }
+
+    try {
+      return JSON.parse(input) as T;
+    } catch (error) {
+      console.error('[APP] JSON parse hatası:', error);
+      return fallback;
+    }
+  }
+
   onMount(() => {
     window.forceScreen = (screen: string) => {
       $activeScreen = screen;
+    };
+
+    window.hudInit = (data: { charName: string; playerId: number; money: string | number }) => {
+      charName.set(data?.charName ?? 'Oyuncu');
+      playerId.set(Number(data?.playerId) || 0);
+      playerMoney.set(parseMoney(data?.money));
+    };
+
+    window.hudUpdateMoney = (data: { money: string | number }) => {
+      playerMoney.set(parseMoney(data?.money));
+    };
+
+    window.hudUpdateLocation = (data: { location: string; direction: string }) => {
+      if (data?.location) locationName.set(data.location);
+      if (data?.direction) directionName.set(data.direction);
+    };
+
+    window.syncMinimapData = (bottom: number, left: number, width: number) => {
+      if (typeof bottom === 'number') minimapBottom.set(bottom);
+      if (typeof left === 'number') minimapLeft.set(left);
+      if (typeof width === 'number') minimapWidth.set(width);
+    };
+
+    window.syncMinimap = (anchor: { bottom?: number; left?: number; width?: number }) => {
+      if (typeof anchor?.bottom === 'number') minimapBottom.set(anchor.bottom);
+      if (typeof anchor?.left === 'number') minimapLeft.set(anchor.left);
+      if (typeof anchor?.width === 'number') minimapWidth.set(anchor.width);
+    };
+
+    window.hudUpdateMapPosition = (data: { bottom: number; left: number }) => {
+      if (typeof data?.bottom === 'number') minimapBottom.set(data.bottom);
+      if (typeof data?.left === 'number') minimapLeft.set(data.left);
+    };
+
+    window.chv = (data: {
+      inVehicle?: boolean;
+      speed?: number;
+      fuel?: number;
+      f?: number;
+      lightsOn?: boolean;
+      parkingBrakeOn?: boolean;
+    }) => {
+      if (data.inVehicle !== undefined) inVehicle.set(data.inVehicle);
+      if (typeof data.speed === 'number') vehicleSpeed.set(data.speed);
+      if (typeof data.fuel === 'number') vehicleFuel.set(data.fuel);
+      if (typeof data.f === 'number') {
+        vehicleEngineOn.set((data.f & 1) !== 0);
+        vehicleLocked.set((data.f & 2) !== 0);
+        vehicleSeatbelt.set((data.f & 4) !== 0);
+      }
+      if (typeof data.lightsOn === 'boolean') vehicleLightsOn.set(data.lightsOn);
+      if (typeof data.parkingBrakeOn === 'boolean') vehicleParkingBrakeOn.set(data.parkingBrakeOn);
+    };
+
+    window.openInventory = (payloadInput: string | object) => {
+      const payload = safeParseJson<any | null>(payloadInput, null);
+      if (!payload) return;
+      inventoryPayload.set(payload);
+      isInventoryOpen.set(true);
+    };
+
+    window.closeInventory = () => {
+      isInventoryOpen.set(false);
     };
 
     window.setSavedCredentials = (user: string, pass: string) => {
@@ -77,32 +179,22 @@
     window.onLoginSuccess = (_username: string, adminLevel: number, charactersJson: string) => {
       isLoading = false;
       myAdminLevel = adminLevel;
-      
-      // Parse characters
-      try {
-        userCharacters = typeof charactersJson === 'string' ? JSON.parse(charactersJson) : charactersJson;
-      } catch {
-        userCharacters = charactersJson as any;
-      }
+      userCharacters = safeParseJson<any[]>(charactersJson, []);
       
       $activeScreen = 'characterSelect';
     };
 
     window.openFactionUI = (dataJson: string) => {
-      try {
-        currentFactionData = JSON.parse(dataJson);
-      } catch {
-        currentFactionData = null;
-      }
+      currentFactionData = safeParseJson<any | null>(dataJson, null);
+      if (!currentFactionData) return;
       isFactionPanelOpen = true;
     };
 
     window.patchFactionUI = (patchJson: string) => {
       if (!isFactionPanelOpen || !currentFactionData) return;
-      try {
-        const patch = JSON.parse(patchJson);
-        currentFactionData = { ...currentFactionData, ...patch };
-      } catch {}
+      const patch = safeParseJson<Record<string, unknown> | null>(patchJson, null);
+      if (!patch) return;
+      currentFactionData = { ...currentFactionData, ...patch };
     };
 
     // Client'tan F3 toggle ile kapatılabilmesi için global köprü
@@ -151,6 +243,15 @@
 
   onDestroy(() => {
     delete (window as any).forceScreen;
+    delete (window as any).hudInit;
+    delete (window as any).hudUpdateMoney;
+    delete (window as any).hudUpdateLocation;
+    delete (window as any).syncMinimapData;
+    delete (window as any).syncMinimap;
+    delete (window as any).hudUpdateMapPosition;
+    delete (window as any).chv;
+    delete (window as any).openInventory;
+    delete (window as any).closeInventory;
     delete (window as any).setSavedCredentials;
     delete (window as any).onLoginError;
     delete (window as any).onLoginSuccess;

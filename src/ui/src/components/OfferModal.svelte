@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+
   /**
    * OfferModal — Bağımsız teklif/onay modülü.
    * Birlik daveti, takas teklifi, taksi onayı vb. her türlü
@@ -53,15 +55,14 @@
     }
   }
 
-  // Global hook — CEF'ten çağrılır
-  if (typeof window !== 'undefined') {
+  onMount(() => {
     (window as any).showOffer = (jsonStr: string) => {
       try {
         const offer: Offer = JSON.parse(jsonStr);
         addOffer(offer);
       } catch {}
     };
-  }
+  });
 
   const ICON_BY_TYPE: Record<string, string> = {
     faction_invite: '⚔',
@@ -70,6 +71,11 @@
   };
 
   onDestroy(() => {
+    for (const offerId of Object.keys(timers)) {
+      clearInterval(timers[offerId]);
+    }
+    timers = {};
+    countdowns = {};
     delete (window as any).showOffer;
   });
 </script>

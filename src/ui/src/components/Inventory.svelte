@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+        import { onMount } from 'svelte';
+    import { fly } from 'svelte/transition';
   import type { ItemDef, InventorySlot } from '../../../../shared/types';
+  import { isInventoryOpen, inventoryPayload } from '../store';
 
 
   // ── Tipler ────────────────────────────────────────────────────────────────
@@ -17,7 +19,6 @@
   }
 
   // ── State (Svelte 5 Runes) ────────────────────────────────────────────────
-  let active         = $state(false);
   let charName       = $state('Karakter');
   let maxWeight      = $state(30);
   let currentWeight  = $state(0);
@@ -66,10 +67,43 @@
   }
 
   function closeInv() {
-    active = false;
+    isInventoryOpen.set(false);
     ctxVisible = false;
     triggerMP('server:inventory:close');
   }
+
+  $effect(() => {
+    const payload = $inventoryPayload as InventoryPayload | null;
+    if (!payload) {
+      items = {};
+      playerSlots = new Map();
+      otherSlots = new Map();
+      hasOther = false;
+      return;
+    }
+
+    items = payload.items || {};
+    charName = payload.charName || 'Oyuncu';
+    maxWeight = payload.maxWeight || 30;
+    currentWeight = payload.weight || 0;
+
+    const pm = new Map<number, InventorySlot>();
+    for (const slot of payload.slots || []) pm.set(slot.slot, slot);
+    playerSlots = pm;
+
+    if (payload.otherSlots && payload.otherSlots.length > 0) {
+      const om = new Map<number, InventorySlot>();
+      for (const slot of payload.otherSlots) om.set(slot.slot, slot);
+      otherSlots = om;
+      otherName = payload.otherName || 'Depo / Bagaj';
+      otherMaxWeight = payload.otherMaxWeight || 30;
+      otherWeight = payload.otherWeight || 0;
+      hasOther = true;
+    } else {
+      otherSlots = new Map();
+      hasOther = false;
+    }
+  });
 
   // ── Sürükle-Bırak İşlemleri ────────────────────────────────────────────────
   function onDragStart(e: DragEvent, slot: number, origin: 'self' | 'other') {
@@ -148,41 +182,10 @@
     ctxVisible = false;
   }
 
-  // ── RAGE:MP Event Dinleyicileri ────────────────────────────────────────────
   onMount(() => {
-    (window as any).openInventory = (payloadJson: string) => {
-      try {
-        const payload: InventoryPayload = JSON.parse(payloadJson);
-        items = payload.items || {};
-        charName = payload.charName || 'Oyuncu';
-        maxWeight = payload.maxWeight || 30;
-        currentWeight = payload.weight || 0;
-
-        const pm = new Map();
-        for (const s of payload.slots || []) pm.set(s.slot, s);
-        playerSlots = pm;
-
-        if (payload.otherSlots && payload.otherSlots.length > 0) {
-          const om = new Map();
-          for (const s of payload.otherSlots) om.set(s.slot, s);
-          otherSlots = om;
-          otherName = payload.otherName || 'Depo / Bagaj';
-          otherMaxWeight = payload.otherMaxWeight || 30;
-          otherWeight = payload.otherWeight || 0;
-          hasOther = true;
-        } else {
-          otherSlots.clear();
-          hasOther = false;
-        }
-        active = true;
-      } catch (e) { console.error("Inventory Parse Error:", e); }
-    };
-
-    (window as any).closeInventory = () => closeInv();
-
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Tab') {
-          if (active) {
+          if ($isInventoryOpen) {
               e.preventDefault();
               closeInv();
           }
@@ -194,18 +197,14 @@
     };
   });
 
-  onDestroy(() => {
-    delete (window as any).openInventory;
-    delete (window as any).closeInventory;
-  });
 </script>
 
-{#if active}
+{#if $isInventoryOpen}
 <div class="inventory-overlay" onclick={() => ctxVisible = false}>
     
     <div class="inventory-container" onclick={(e) => e.stopPropagation()}>
         
-        <div class="inventory-panel">
+        <div class="inventory-panel" transition:fly={{ x: 40, duration: 180 }}>
             <div class="panel-header">
                 <div class="header-title">
                     <span class="icon">🎒</span> ENVANTER
@@ -243,7 +242,7 @@
         </div>
 
         {#if hasOther}
-        <div class="inventory-panel other-panel">
+        <div class="inventory-panel other-panel" transition:fly={{ x: 40, duration: 180 }}>
             <div class="panel-header">
                 <div class="header-title">
                     <span class="icon">📦</span> {otherName.toUpperCase()}

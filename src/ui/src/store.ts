@@ -21,9 +21,23 @@ export const vehicleMaxFuel = writable<number>(100);
 // Lokasyon verileri
 export const locationName = writable<string>('Bilinmiyor');
 export const directionName = writable<string>('N');
+export const minimapBottom = writable<number>(184);
+export const minimapLeft = writable<number>(24);
+export const minimapWidth = writable<number>(300);
 
 // Teklifler / Aksiyonlar
 export const activeOffers = writable<any[]>([]);
+
+// Araç durum detayları
+export const vehicleEngineOn = writable<boolean>(true);
+export const vehicleLocked = writable<boolean>(false);
+export const vehicleSeatbelt = writable<boolean>(true);
+export const vehicleLightsOn = writable<boolean>(false);
+export const vehicleParkingBrakeOn = writable<boolean>(false);
+
+// Envanter
+export const isInventoryOpen = writable<boolean>(false);
+export const inventoryPayload = writable<any | null>(null);
 
 // Chat / Bildirimler vb eklenebilir.
 
