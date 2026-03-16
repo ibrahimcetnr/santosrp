@@ -2,6 +2,8 @@ import { registerCommand, getAvailableCommands } from '../cmdHandler';
 import { isPlayerValid } from '../utils/safeEvent';
 import { query } from '../db';
 import { getVehicleData } from '../VehicleDataManager';
+import { ContainerType, giveItemToContainer, refreshOpenInventory } from '../inventory';
+import { getItemDef } from '../items';
 
 registerCommand(
   {
@@ -483,6 +485,63 @@ registerCommand(
       player.outputChatBox('!{#ef4444}[HATA] Geçersiz silah adı.');
       console.error('[WEAPON] Invalid weapon:', weaponName, error);
     }
+  }
+);
+
+registerCommand(
+  {
+    name: '/giveitem',
+    syntax: '[ID] [ItemId] [Miktar]',
+    description: 'Hedef oyuncunun envanterine item ekler',
+    permissions: { admin: 3 },
+  },
+  async (player: PlayerMp, args: string[]) => {
+    if (args.length < 3) {
+      player.outputChatBox('!{#fbbf24}[KULLANIM] /giveitem [ID] [ItemId] [Miktar]');
+      player.outputChatBox('!{#94a3b8}Örnek: /giveitem 5 water 10');
+      return;
+    }
+
+    const targetId = parseInt(args[0], 10);
+    const itemId = args[1].toLowerCase();
+    const amount = parseInt(args[2], 10);
+
+    if (isNaN(targetId) || isNaN(amount) || amount <= 0) {
+      player.outputChatBox('!{#ef4444}[HATA] Geçersiz hedef ID veya miktar.');
+      return;
+    }
+
+    const def = getItemDef(itemId);
+    if (!def) {
+      player.outputChatBox(`!{#ef4444}[HATA] Geçersiz item: ${itemId}`);
+      return;
+    }
+
+    const target = mp.players.at(targetId);
+    if (!target || !isPlayerValid(target)) {
+      player.outputChatBox('!{#ef4444}[HATA] Belirtilen ID\'de oyuncu bulunamadı.');
+      return;
+    }
+
+    if (!target.characterId) {
+      player.outputChatBox('!{#ef4444}[HATA] Hedef oyuncu karaktere giriş yapmamış.');
+      return;
+    }
+
+    const result = await giveItemToContainer(ContainerType.PLAYER, target.characterId, itemId, amount);
+    if (!result.success) {
+      player.outputChatBox('!{#ef4444}[HATA] Item envantere eklenemedi.');
+      return;
+    }
+
+    await refreshOpenInventory(target);
+
+    const targetName = target.characterName || target.accountUsername || target.name;
+    const adminName = player.characterName || player.accountUsername || player.name;
+
+    player.outputChatBox(`!{#22c55e}[BAŞARILI] ${targetName} envanterine ${amount}x ${def.name} eklendi.`);
+    target.outputChatBox(`!{#c9a84c}[BİLGİ] ${adminName} tarafından envanterinize ${amount}x ${def.name} eklendi.`);
+    console.log(`[GIVEITEM] ${adminName} -> ${targetName}: ${itemId} x${amount}`);
   }
 );
 

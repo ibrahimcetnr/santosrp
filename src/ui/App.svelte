@@ -400,6 +400,11 @@
     font-family: var(--font-primary);
   }
 
+  :global(*, *::before, *::after) {
+    animation: none !important;
+    transition: none !important;
+  }
+
   :global(body) {
     background: transparent;
   }

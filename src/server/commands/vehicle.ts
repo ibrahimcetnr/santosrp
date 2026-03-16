@@ -12,6 +12,36 @@ import { safeEvent, isPlayerValid } from '../utils/safeEvent';
 import { query } from '../db';
 import { getVehicleData } from '../VehicleDataManager';
 import { startEngineLoop, stopEngineLoop } from '../VehicleManager';
+import { openDualInventory, ContainerType } from '../inventory';
+
+function findNearestVehicle(player: PlayerMp, maxDistance = 5): VehicleMp | null {
+    let nearest: VehicleMp | null = null;
+    let nearestDist = maxDistance;
+    const pPos = player.position;
+
+    mp.vehicles.toArray().forEach((v: VehicleMp) => {
+        try {
+            const vPos = v.position;
+            const dist = Math.sqrt(
+                Math.pow(pPos.x - vPos.x, 2) +
+                Math.pow(pPos.y - vPos.y, 2) +
+                Math.pow(pPos.z - vPos.z, 2)
+            );
+            if (dist <= nearestDist) {
+                nearestDist = dist;
+                nearest = v;
+            }
+        } catch {
+            // noop
+        }
+    });
+
+    return nearest;
+}
+
+function isVehicleLocked(vehicle: VehicleMp): boolean {
+    return !!vehicle.locked || !!vehicle.getVariable('lockedStatus');
+}
 
 // ─── /aracgetir [ID] ─────────────────────────────────────────────────────────
 
@@ -158,6 +188,89 @@ registerCommand(
             const durum = v.is_parked ? '!{#ef4444}Parkta' : '!{#22c55e}Dünyada';
             player.outputChatBox(`!{#94a3b8}  [ID: ${v.id}] !{#ffffff}${v.model} !{#94a3b8}| Plaka: !{#ffffff}${v.plate} !{#94a3b8}| Durum: ${durum}`);
         }
+    }
+);
+
+registerCommand(
+    {
+        name: '/bagaj',
+        syntax: '',
+        description: 'Araç dışındayken yakınınızdaki aracın bagajını açar',
+    },
+    async (player: PlayerMp) => {
+        if (!player.characterId) {
+            player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
+            return;
+        }
+
+        if (player.vehicle) {
+            player.outputChatBox('!{#fbbf24}[HATA] Araç içindeyken bagaja erişemezsiniz.');
+            return;
+        }
+
+        const vehicle = findNearestVehicle(player, 5);
+        if (!vehicle) {
+            player.outputChatBox('!{#fbbf24}[HATA] Yakında bagaj açılacak bir araç bulunamadı.');
+            return;
+        }
+
+        if (isVehicleLocked(vehicle)) {
+            player.outputChatBox('!{#ef4444}[HATA] Araç kilitli olduğu için bagaja erişemezsiniz.');
+            return;
+        }
+
+        const dbIdRaw = vehicle.getVariable('dbId');
+        const vehicleDbId = Number(dbIdRaw);
+        if (!Number.isInteger(vehicleDbId) || vehicleDbId <= 0) {
+            player.outputChatBox('!{#ef4444}[HATA] Bu aracın geçerli veritabanı ID bilgisi yok.');
+            return;
+        }
+
+        const trunkSizeRaw = Number(vehicle.getVariable('trunk_size'));
+        const trunkMaxWeight = Number.isFinite(trunkSizeRaw) && trunkSizeRaw > 0 ? trunkSizeRaw : 50;
+
+        await openDualInventory(
+            player,
+            ContainerType.VEHICLE_TRUNK,
+            vehicleDbId,
+            'Araç Bagajı',
+            trunkMaxWeight
+        );
+    }
+);
+
+registerCommand(
+    {
+        name: '/torpido',
+        syntax: '',
+        description: 'Araç içindeyken torpido envanterini açar',
+    },
+    async (player: PlayerMp) => {
+        if (!player.characterId) {
+            player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
+            return;
+        }
+
+        const vehicle = player.vehicle;
+        if (!vehicle) {
+            player.outputChatBox('!{#fbbf24}[HATA] Araç dışındayken torpidoya erişemezsiniz.');
+            return;
+        }
+
+        const dbIdRaw = vehicle.getVariable('dbId');
+        const vehicleDbId = Number(dbIdRaw);
+        if (!Number.isInteger(vehicleDbId) || vehicleDbId <= 0) {
+            player.outputChatBox('!{#ef4444}[HATA] Bu aracın geçerli veritabanı ID bilgisi yok.');
+            return;
+        }
+
+        await openDualInventory(
+            player,
+            ContainerType.VEHICLE_GLOVEBOX,
+            vehicleDbId,
+            'Araç Torpidosu',
+            20
+        );
     }
 );
 

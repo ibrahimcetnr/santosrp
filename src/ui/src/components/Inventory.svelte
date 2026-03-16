@@ -1,7 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { SvelteMap } from 'svelte/reactivity';
-    import { fly } from 'svelte/transition';
     import Icon from './Icon.svelte';
   import type { ItemDef, InventorySlot } from '../../../../shared/types';
   import { isInventoryOpen, inventoryPayload } from '../store';
@@ -15,9 +14,13 @@
     items:           Record<string, ItemDef>;
     charName?:       string;
     otherSlots?:     InventorySlot[];
+        otherType?:      number;
+        otherId?:        number;
     otherName?:      string;
     otherMaxWeight?: number;
     otherWeight?:    number;
+        otherGridRows?:  number;
+        otherGridCols?:  number;
   }
 
   // ── State (Svelte 5 Runes) ────────────────────────────────────────────────
@@ -29,7 +32,11 @@
     let playerSlots    = $state(new SvelteMap<number, InventorySlot>());
 
     let otherSlots     = $state(new SvelteMap<number, InventorySlot>());
+    let otherType      = $state<number | null>(null);
+    let otherId        = $state<number | null>(null);
   let otherName      = $state('');
+    let otherGridRows  = $state(3);
+    let otherGridCols  = $state(7);
   let otherMaxWeight = $state(30);
   let otherWeight    = $state(0);
   let hasOther       = $state(false);
@@ -46,8 +53,29 @@
   let ctxSlot    = $state<number | null>(null);
   let ctxOrigin  = $state<'self' | 'other'>('self');
 
+    // Split Modal State
+    let splitOpen  = $state(false);
+    let splitTitle = $state('Miktar');
+    let splitMax   = $state(1);
+    let splitValue = $state('1');
+    let splitResolver = $state<((value: number | null) => void) | null>(null);
+
   // Toplam Gösterilecek Slot Sayısı (Görseldeki gibi kompakt bir grid için 25 veya 30 idealdir, 30 yapıyoruz)
-  const TOTAL_SLOTS = 30;
+    const GRID_COLUMNS = 7;
+    const GRID_ROWS = 3;
+    const TOTAL_SLOTS = GRID_COLUMNS * GRID_ROWS;
+
+    type InventoryCategory = 'general' | 'keys' | 'food' | 'weapons' | 'clothes';
+
+    const INVENTORY_CATEGORIES: Array<{ key: InventoryCategory; label: string; icon: string }> = [
+        { key: 'general', label: 'Genel', icon: 'backpack' },
+        { key: 'keys', label: 'Anahtarlar', icon: 'car-lock' },
+        { key: 'food', label: 'Yiyecek İçecekler', icon: 'burger' },
+        { key: 'weapons', label: 'Silahlar', icon: 'pistol' },
+        { key: 'clothes', label: 'Kıyafetler', icon: 'users' }
+    ];
+
+    let activeCategory = $state<InventoryCategory>('general');
 
     // ── Yardımcı Fonksiyonlar ──────────────────────────────────────────────────
 
@@ -62,8 +90,127 @@
   function closeInv() {
     isInventoryOpen.set(false);
     ctxVisible = false;
-    triggerMP('server:inventory:close');
+        activeCategory = 'general';
+        triggerMP('client:inventory:closeRequest');
   }
+
+    function requestSplitAmount(maxAmount: number, title: string): Promise<number | null> {
+        if (maxAmount <= 1) return Promise.resolve(1);
+
+        splitTitle = title;
+        splitMax = maxAmount;
+        splitValue = `${maxAmount}`;
+        splitOpen = true;
+
+        return new Promise((resolve) => {
+            splitResolver = resolve;
+        });
+    }
+
+    function closeSplitModal(result: number | null) {
+        splitOpen = false;
+        if (splitResolver) {
+            const resolver = splitResolver;
+            splitResolver = null;
+            resolver(result);
+        }
+    }
+
+    function confirmSplitModal() {
+        const parsed = Number.parseInt(splitValue, 10);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+            closeSplitModal(null);
+            return;
+        }
+        closeSplitModal(Math.min(parsed, splitMax));
+    }
+
+    function isKeyItem(def: ItemDef): boolean {
+        return def.type === 'key' || /anahtar|key/i.test(def.id) || /anahtar|key/i.test(def.name);
+    }
+
+    function isFoodItem(def: ItemDef): boolean {
+        return def.type === 'consumable';
+    }
+
+    function isWeaponItem(def: ItemDef): boolean {
+        return (
+            def.type === 'weapon' ||
+            /weapon|silah|gun|pistol|rifle|shotgun|smg/i.test(def.id) ||
+            /weapon|silah|gun|pistol|rifle|shotgun|smg/i.test(def.name)
+        );
+    }
+
+    function isClothesItem(def: ItemDef): boolean {
+        return (
+            def.type === 'clothes' ||
+            def.type === 'clothing' ||
+            /clothes|clothing|kıyafet|kiyafet|shirt|pants|jacket|hat|shoe/i.test(def.id) ||
+            /kıyafet|kiyafet|elbise|ceket|pantolon|şapka|sapka|ayakkabı|ayakkabi/i.test(def.name)
+        );
+    }
+
+    function getCategoryForDef(def: ItemDef): InventoryCategory {
+        if (isKeyItem(def)) return 'keys';
+        if (isFoodItem(def)) return 'food';
+        if (isWeaponItem(def)) return 'weapons';
+        if (isClothesItem(def)) return 'clothes';
+        return 'general';
+    }
+
+    function getCategorySlotPool(category: InventoryCategory): number[] {
+        const startByCategory: Record<InventoryCategory, number> = {
+            general: 0,
+            keys: 100,
+            food: 200,
+            weapons: 300,
+            clothes: 400
+        };
+
+        const start = startByCategory[category];
+        return Array.from({ length: TOTAL_SLOTS }, (_, i) => start + i);
+    }
+
+    function getPlayerGridCells(): Array<{ slotIndex: number; entry: InventorySlot | null; def: ItemDef | null }> {
+        const slotPool = getCategorySlotPool(activeCategory);
+        const allCategoryEntries: Array<{ slotIndex: number; entry: InventorySlot; def: ItemDef }> = Array.from(playerSlots.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([slotIndex, entry]) => {
+                const def = items[entry.itemId] || null;
+                return { slotIndex, entry, def } as { slotIndex: number; entry: InventorySlot; def: ItemDef | null };
+            })
+            .filter((cell) => cell.def && getCategoryForDef(cell.def) === activeCategory)
+            .slice(0, TOTAL_SLOTS) as Array<{ slotIndex: number; entry: InventorySlot; def: ItemDef }>;
+
+        const inPoolEntries = new Map<number, { entry: InventorySlot; def: ItemDef }>();
+        const outOfPoolEntries: Array<{ slotIndex: number; entry: InventorySlot; def: ItemDef }> = [];
+
+        for (const cell of allCategoryEntries) {
+            if (slotPool.includes(cell.slotIndex)) {
+                inPoolEntries.set(cell.slotIndex, { entry: cell.entry, def: cell.def });
+            } else {
+                outOfPoolEntries.push(cell);
+            }
+        }
+
+        const cells: Array<{ slotIndex: number; entry: InventorySlot | null; def: ItemDef | null }> = slotPool.map((slotIndex) => {
+            const found = inPoolEntries.get(slotIndex);
+            if (!found) return { slotIndex, entry: null, def: null };
+            return { slotIndex, entry: found.entry, def: found.def };
+        });
+
+        for (const cell of outOfPoolEntries) {
+            const emptyIndex = cells.findIndex((gridCell) => !gridCell.entry);
+            if (emptyIndex === -1) break;
+            cells[emptyIndex] = {
+                slotIndex: cell.slotIndex,
+                entry: cell.entry,
+                def: cell.def
+            };
+        }
+
+        return cells;
+    }
 
   $effect(() => {
     const payload = $inventoryPayload as InventoryPayload | null;
@@ -71,6 +218,8 @@
       items = {};
             playerSlots = new SvelteMap<number, InventorySlot>();
             otherSlots = new SvelteMap<number, InventorySlot>();
+            otherType = null;
+            otherId = null;
       hasOther = false;
       return;
     }
@@ -84,18 +233,31 @@
     for (const slot of payload.slots || []) pm.set(slot.slot, slot);
     playerSlots = pm;
 
-    if (payload.otherSlots && payload.otherSlots.length > 0) {
+        const hasOtherContext =
+            payload.otherType !== undefined &&
+            payload.otherId !== undefined &&
+            Number(payload.otherId) > 0;
+
+        if (hasOtherContext || payload.otherSlots !== undefined) {
             const om = new SvelteMap<number, InventorySlot>();
-      for (const slot of payload.otherSlots) om.set(slot.slot, slot);
-      otherSlots = om;
-      otherName = payload.otherName || 'Depo / Bagaj';
-      otherMaxWeight = payload.otherMaxWeight || 30;
-      otherWeight = payload.otherWeight || 0;
-      hasOther = true;
-    } else {
+            for (const slot of payload.otherSlots || []) om.set(slot.slot, slot);
+            otherSlots = om;
+            otherType = payload.otherType ?? null;
+            otherId = payload.otherId ?? null;
+            otherName = payload.otherName || 'Depo / Bagaj';
+            otherGridRows = Math.max(1, payload.otherGridRows || 3);
+            otherGridCols = Math.max(1, payload.otherGridCols || 7);
+            otherMaxWeight = payload.otherMaxWeight || 30;
+            otherWeight = payload.otherWeight || 0;
+            hasOther = true;
+        } else {
             otherSlots = new SvelteMap<number, InventorySlot>();
-      hasOther = false;
-    }
+            otherType = null;
+            otherId = null;
+            otherGridRows = 3;
+            otherGridCols = 7;
+            hasOther = false;
+        }
   });
 
   // ── Sürükle-Bırak İşlemleri ────────────────────────────────────────────────
@@ -119,7 +281,7 @@
     e.preventDefault();
   }
 
-  function onDrop(e: DragEvent, toSlot: number, toOrigin: 'self' | 'other') {
+    async function onDrop(e: DragEvent, toSlot: number, toOrigin: 'self' | 'other') {
     e.preventDefault();
     if (dragSlot === null || !dragging) return;
     if (dragOrigin === toOrigin && dragSlot === toSlot) return; 
@@ -127,12 +289,22 @@
     const entry = dragOrigin === 'self' ? playerSlots.get(dragSlot) : otherSlots.get(dragSlot);
     if (!entry) return;
 
+                const splitAmount = entry.amount;
+
+        const otherCtxType = otherType;
+        const otherCtxId = otherId;
+
     if (dragOrigin === 'self' && toOrigin === 'self') {
-      triggerMP('server:inventory:moveSlot', dragSlot, toSlot, entry.amount);
+            triggerMP('server:inventory:moveSlot', dragSlot, toSlot, splitAmount, otherCtxType, otherCtxId);
+        } else if (dragOrigin === 'other' && toOrigin === 'other') {
+            if (otherCtxType === null || otherCtxId === null) return;
+            triggerMP('server:inventory:moveOtherSlot', dragSlot, toSlot, splitAmount, otherCtxType, otherCtxId);
     } else if (dragOrigin === 'other' && toOrigin === 'self') {
-      triggerMP('server:inventory:takeFromOther', dragSlot, toSlot, entry.amount);
+            if (otherCtxType === null || otherCtxId === null) return;
+            triggerMP('server:inventory:takeFromOther', dragSlot, toSlot, splitAmount, otherCtxType, otherCtxId);
     } else if (dragOrigin === 'self' && toOrigin === 'other') {
-      triggerMP('server:inventory:putToOther', dragSlot, toSlot, entry.amount);
+            if (otherCtxType === null || otherCtxId === null) return;
+            triggerMP('server:inventory:putToOther', dragSlot, toSlot, splitAmount, otherCtxType, otherCtxId);
     }
     dragging = false;
   }
@@ -160,17 +332,38 @@
     ctxVisible = true;
   }
 
-  function handleAction(action: 'use' | 'drop' | 'take') {
+    async function handleAction(action: 'use' | 'drop' | 'take' | 'split') {
     if (ctxSlot === null) return;
     const entry = ctxOrigin === 'self' ? playerSlots.get(ctxSlot) : otherSlots.get(ctxSlot);
     if (!entry) return;
 
+        const hasEntryMetadata = !!entry.metadata && (typeof entry.metadata !== 'object' || Object.keys(entry.metadata).length > 0);
+    const otherCtxType = otherType;
+    const otherCtxId = otherId;
+        const amountForAction = (action === 'drop' || action === 'take' || action === 'split')
+            ? await requestSplitAmount(
+                    entry.amount,
+                    action === 'drop'
+                        ? 'Yere atılacak miktar'
+                        : action === 'take'
+                            ? 'Alınacak miktar'
+                            : 'Ayrılacak miktar'
+                )
+      : entry.amount;
+
+    if (amountForAction === null || amountForAction <= 0) return;
+
     if (action === 'use') {
-        triggerMP('server:inventory:useItem', ctxSlot);
+        triggerMP('server:inventory:useItem', ctxSlot, otherCtxType, otherCtxId);
+    } else if (action === 'split') {
+        if (ctxOrigin !== 'self') return;
+        if (hasEntryMetadata) return;
+        triggerMP('server:inventory:splitSlot', ctxSlot, amountForAction, otherCtxType, otherCtxId);
     } else if (action === 'drop') {
-        triggerMP('server:inventory:dropItem', ctxSlot, entry.amount); // Hepsini atar (Miktar bölme eklenebilir)
+        triggerMP('server:inventory:dropItem', ctxSlot, amountForAction, otherCtxType, otherCtxId);
     } else if (action === 'take') {
-        triggerMP('server:inventory:takeFromOther', ctxSlot, entry.amount);
+        if (otherCtxType === null || otherCtxId === null) return;
+        triggerMP('server:inventory:takeFromOther', ctxSlot, -1, amountForAction, otherCtxType, otherCtxId);
     }
     ctxVisible = false;
   }
@@ -195,37 +388,53 @@
 {#if $isInventoryOpen}
 <div class="inventory-overlay" onclick={() => ctxVisible = false}>
     
-    <div class="inventory-container" onclick={(e) => e.stopPropagation()}>
+    <div class="inventory-container" onclick={(e) => { ctxVisible = false; e.stopPropagation(); }}>
         
-        <div class="inventory-panel" transition:fly={{ x: 40, duration: 180 }}>
+        <div class="inventory-panel">
+            <div class="panel-top">
+                <div class="top-weight-value">
+                    {currentWeight.toFixed(1)} <span class="weight-max">/ {maxWeight} KG</span>
+                </div>
+                <div class="top-weight-vertical">
+                    <div class="weight-bar-fill" style="transform: scaleY({Math.max(0, Math.min(1, currentWeight / maxWeight || 0))});"></div>
+                </div>
+            </div>
+
             <div class="panel-header">
                 <div class="header-title">
                     <span class="icon"><Icon name="backpack" size="1.2vw" /></span> ENVANTER
                 </div>
-                <div class="header-weight">
-                    {currentWeight.toFixed(1)} <span style="opacity: 0.5">/ {maxWeight} KG</span>
-                </div>
-            </div>
-            
-            <div class="weight-bar-bg">
-                <div class="weight-bar-fill" style="transform: scaleX({Math.max(0, Math.min(1, currentWeight / maxWeight || 0))});"></div>
             </div>
 
-            <div class="slot-grid">
-                {#each Array(TOTAL_SLOTS) as _, i}
-                    {@const entry = playerSlots.get(i)}
-                    {@const def = entry ? items[entry.itemId] : null}
+            <div class="category-tabs">
+                {#each INVENTORY_CATEGORIES as category}
+                    <button
+                        type="button"
+                        class="category-tab {activeCategory === category.key ? 'active' : ''}"
+                        title={category.label}
+                        onclick={() => activeCategory = category.key}
+                    >
+                        <Icon name={category.icon} size="0.82vw" />
+                    </button>
+                {/each}
+            </div>
+
+            <div class="slot-grid" style="--grid-cols: {GRID_COLUMNS};">
+                {#each getPlayerGridCells() as cell}
+                    {@const entry = cell.entry}
+                    {@const def = cell.def}
+                    {@const slotIndex = cell.slotIndex}
                     
-                    <div class="slot {entry ? 'filled' : ''} {dragging && dragSlot === i && dragOrigin === 'self' ? 'dragging' : ''}"
+                    <div class="slot {entry ? 'filled' : ''} {dragging && dragSlot === slotIndex && dragOrigin === 'self' ? 'dragging' : ''}"
+                        draggable={!!entry}
+                        ondragstart={(e) => entry && onDragStart(e, slotIndex, 'self')}
+                         ondragend={onDragEnd}
                          ondragover={onDragOver}
-                         ondrop={(e) => onDrop(e, i, 'self')}
-                         oncontextmenu={(e) => entry && openCtx(e, i, 'self')}>
+                        ondrop={(e) => onDrop(e, slotIndex, 'self')}
+                        oncontextmenu={(e) => entry && openCtx(e, slotIndex, 'self')}>
                         
                         {#if entry && def}
-                            <div class="slot-icon"
-                                 draggable="true"
-                                 ondragstart={(e) => onDragStart(e, i, 'self')}
-                                 ondragend={onDragEnd}>
+                            <div class="slot-icon">
                                 <Icon name={def.icon || 'default'} size="100%" />
                             </div>
                             <div class="amount">{entry.amount}</div>
@@ -237,35 +446,37 @@
         </div>
 
         {#if hasOther}
-        <div class="inventory-panel other-panel" transition:fly={{ x: 40, duration: 180 }}>
+        <div class="inventory-panel other-panel">
+            <div class="panel-top">
+                <div class="top-weight-value">
+                    {otherWeight.toFixed(1)} <span class="weight-max">/ {otherMaxWeight} KG</span>
+                </div>
+                <div class="top-weight-vertical">
+                    <div class="weight-bar-fill" style="transform: scaleY({Math.max(0, Math.min(1, otherWeight / otherMaxWeight || 0))});"></div>
+                </div>
+            </div>
+
             <div class="panel-header">
                 <div class="header-title">
                     <span class="icon"><Icon name="box" size="1.2vw" /></span> {otherName.toUpperCase()}
                 </div>
-                <div class="header-weight">
-                    {otherWeight.toFixed(1)} <span style="opacity: 0.5">/ {otherMaxWeight} KG</span>
-                </div>
-            </div>
-            
-            <div class="weight-bar-bg">
-                <div class="weight-bar-fill" style="transform: scaleX({Math.max(0, Math.min(1, otherWeight / otherMaxWeight || 0))});"></div>
             </div>
 
-            <div class="slot-grid">
-                {#each Array(TOTAL_SLOTS) as _, i}
+            <div class="slot-grid" style="--grid-cols: {otherGridCols};">
+                {#each Array(otherGridRows * otherGridCols) as _, i}
                     {@const entry = otherSlots.get(i)}
                     {@const def = entry ? items[entry.itemId] : null}
                     
                     <div class="slot {entry ? 'filled' : ''}"
+                         draggable={!!entry}
+                         ondragstart={(e) => entry && onDragStart(e, i, 'other')}
+                         ondragend={onDragEnd}
                          ondragover={onDragOver}
                          ondrop={(e) => onDrop(e, i, 'other')}
                          oncontextmenu={(e) => entry && openCtx(e, i, 'other')}>
                         
                         {#if entry && def}
-                            <div class="slot-icon"
-                                 draggable="true"
-                                 ondragstart={(e) => onDragStart(e, i, 'other')}
-                                 ondragend={onDragEnd}>
+                            <div class="slot-icon">
                                 <Icon name={def.icon || 'default'} size="100%" />
                             </div>
                             <div class="amount">{entry.amount}</div>
@@ -275,6 +486,30 @@
                 {/each}
             </div>
         </div>
+        {/if}
+
+        {#if splitOpen}
+            <div class="split-modal-backdrop" onclick={() => closeSplitModal(null)}>
+                <div class="split-modal" onclick={(e) => e.stopPropagation()}>
+                    <div class="split-title">{splitTitle}</div>
+                    <div class="split-desc">1 - {splitMax} arası bir miktar gir.</div>
+                    <input
+                        class="split-input"
+                        type="number"
+                        min="1"
+                        max={splitMax}
+                        bind:value={splitValue}
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter') confirmSplitModal();
+                            if (e.key === 'Escape') closeSplitModal(null);
+                        }}
+                    />
+                    <div class="split-actions">
+                        <button type="button" class="split-btn ghost" onclick={() => closeSplitModal(null)}>İptal</button>
+                        <button type="button" class="split-btn" onclick={confirmSplitModal}>Onayla</button>
+                    </div>
+                </div>
+            </div>
         {/if}
 
     </div>
@@ -293,6 +528,9 @@
                 {#if ctxOrigin === 'self'}
                     {#if def.usable}
                         <div class="ctx-btn" onclick={() => handleAction('use')}>Eşyayı Kullan</div>
+                    {/if}
+                    {#if entry.amount > 1 && (!entry.metadata || (typeof entry.metadata === 'object' && Object.keys(entry.metadata).length === 0))}
+                        <div class="ctx-btn" onclick={() => handleAction('split')}>Ayır</div>
                     {/if}
                     <div class="ctx-btn text-red" onclick={() => handleAction('drop')}>Yere At</div>
                 {:else}
@@ -339,20 +577,14 @@
     padding: 0.8vw;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(8px);
-    animation: slideInRight 0.2s ease-out;
-}
-
-@keyframes slideInRight {
-    from { opacity: 0; transform: translateX(20px); }
-    to { opacity: 1; transform: translateX(0); }
 }
 
 /* Üst Başlık (Header) */
 .panel-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
-    margin-bottom: 0.5vw;
+    margin-bottom: 0.35vw;
     color: #fff;
 }
 .header-title {
@@ -363,33 +595,78 @@
     align-items: center;
     gap: 0.4vw;
 }
-.header-weight {
-    font-size: 0.7vw;
+.panel-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.45vw;
+}
+
+.top-weight-value {
+    font-size: 0.62vw;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+.weight-max {
+    opacity: 0.55;
     font-weight: 600;
 }
 
-/* Yatay Ağırlık Barı */
-.weight-bar-bg {
-    width: 100%;
-    height: 4px;
+.top-weight-vertical {
+    width: 0.45vw;
+    height: 3.2vw;
+    margin-left: auto;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 2px;
-    margin-bottom: 1vw;
+    border-radius: 999px;
     overflow: hidden;
 }
+
 .weight-bar-fill {
     width: 100%;
     height: 100%;
     background: #3b82f6; /* Tatlı bir mavi */
-    transform-origin: left center;
-    transition: transform 0.3s ease;
+    transform-origin: bottom center;
 }
 .other-panel .weight-bar-fill { background: #10b981; /* Karşı depo için yeşil bar */ }
+
+.category-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.35vw;
+    margin-bottom: 0.5vw;
+}
+
+.category-tab {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.22vw;
+    min-height: 1.45vw;
+    cursor: pointer;
+}
+
+.category-tab:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.category-tab.active {
+    background: rgba(59, 130, 246, 0.22);
+    border-color: rgba(59, 130, 246, 0.6);
+    color: #fff;
+}
 
 /* Grid Sistemi (5 Sütunlu) */
 .slot-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(var(--grid-cols, 7), 1fr);
     gap: 0.4vw;
 }
 
@@ -403,7 +680,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
 }
 .slot.filled {
     background: rgba(255, 255, 255, 0.08);
@@ -474,9 +750,7 @@
     box-shadow: 0 5px 15px rgba(0,0,0,0.6);
     z-index: 1000;
     overflow: hidden;
-    animation: fadeIn 0.1s ease-out;
 }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .ctx-header {
     padding: 0.6vw;
@@ -492,9 +766,78 @@
     font-size: 0.7vw;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s, color 0.2s;
 }
 .ctx-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 .ctx-btn.text-red { color: #ef4444; }
 .ctx-btn.text-red:hover { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+.split-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    z-index: 1200;
+}
+
+.split-modal {
+    width: 16vw;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(14, 14, 14, 0.96);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.5);
+    padding: 0.8vw;
+}
+
+.split-title {
+    color: #fff;
+    font-size: 0.78vw;
+    font-weight: 700;
+    margin-bottom: 0.3vw;
+}
+
+.split-desc {
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.64vw;
+    margin-bottom: 0.55vw;
+}
+
+.split-input {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 0.7vw;
+    padding: 0.38vw 0.5vw;
+    outline: none;
+}
+
+.split-input:focus {
+    border-color: rgba(59, 130, 246, 0.7);
+}
+
+.split-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.35vw;
+    margin-top: 0.65vw;
+}
+
+.split-btn {
+    border: 1px solid rgba(59, 130, 246, 0.65);
+    background: rgba(59, 130, 246, 0.2);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 0.64vw;
+    font-weight: 600;
+    padding: 0.32vw 0.55vw;
+    cursor: pointer;
+}
+
+.split-btn.ghost {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.07);
+}
 </style>

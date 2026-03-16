@@ -1327,3 +1327,27 @@ mp.events.add("client:inventory:openUI", (payloadJson) => {
     }
   });
 });
+mp.events.add("server:inventory:moveSlot", (fromSlot, toSlot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:moveSlot", fromSlot, toSlot, amount, otherType ?? null, otherId ?? null);
+});
+mp.events.add("server:inventory:moveOtherSlot", (fromSlot, toSlot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:moveOtherSlot", fromSlot, toSlot, amount, otherType, otherId);
+});
+mp.events.add("server:inventory:takeFromOther", (fromSlot, toSlot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:takeFromOther", fromSlot, toSlot, amount, otherType, otherId);
+});
+mp.events.add("server:inventory:putToOther", (fromSlot, toSlot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:putToOther", fromSlot, toSlot, amount, otherType, otherId);
+});
+mp.events.add("server:inventory:useItem", (slot, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:useItem", slot, otherType ?? null, otherId ?? null);
+});
+mp.events.add("server:inventory:dropItem", (slot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:dropItem", slot, amount, otherType ?? null, otherId ?? null);
+});
+mp.events.add("server:inventory:splitSlot", (slot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:splitSlot", slot, amount, otherType ?? null, otherId ?? null);
+});
+mp.events.add("client:inventory:closeRequest", () => {
+  mp.events.callRemote("server:inventory:close");
+});

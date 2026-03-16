@@ -14,6 +14,31 @@ const safeEvent_1 = require("../utils/safeEvent");
 const db_1 = require("../db");
 const VehicleDataManager_1 = require("../VehicleDataManager");
 const VehicleManager_1 = require("../VehicleManager");
+const inventory_1 = require("../inventory");
+function findNearestVehicle(player, maxDistance = 5) {
+    let nearest = null;
+    let nearestDist = maxDistance;
+    const pPos = player.position;
+    mp.vehicles.toArray().forEach((v) => {
+        try {
+            const vPos = v.position;
+            const dist = Math.sqrt(Math.pow(pPos.x - vPos.x, 2) +
+                Math.pow(pPos.y - vPos.y, 2) +
+                Math.pow(pPos.z - vPos.z, 2));
+            if (dist <= nearestDist) {
+                nearestDist = dist;
+                nearest = v;
+            }
+        }
+        catch {
+            // noop
+        }
+    });
+    return nearest;
+}
+function isVehicleLocked(vehicle) {
+    return !!vehicle.locked || !!vehicle.getVariable('lockedStatus');
+}
 // ─── /aracgetir [ID] ─────────────────────────────────────────────────────────
 (0, cmdHandler_1.registerCommand)({
     name: '/aracgetir',
@@ -138,6 +163,60 @@ const VehicleManager_1 = require("../VehicleManager");
         const durum = v.is_parked ? '!{#ef4444}Parkta' : '!{#22c55e}Dünyada';
         player.outputChatBox(`!{#94a3b8}  [ID: ${v.id}] !{#ffffff}${v.model} !{#94a3b8}| Plaka: !{#ffffff}${v.plate} !{#94a3b8}| Durum: ${durum}`);
     }
+});
+(0, cmdHandler_1.registerCommand)({
+    name: '/bagaj',
+    syntax: '',
+    description: 'Araç dışındayken yakınınızdaki aracın bagajını açar',
+}, async (player) => {
+    if (!player.characterId) {
+        player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
+        return;
+    }
+    if (player.vehicle) {
+        player.outputChatBox('!{#fbbf24}[HATA] Araç içindeyken bagaja erişemezsiniz.');
+        return;
+    }
+    const vehicle = findNearestVehicle(player, 5);
+    if (!vehicle) {
+        player.outputChatBox('!{#fbbf24}[HATA] Yakında bagaj açılacak bir araç bulunamadı.');
+        return;
+    }
+    if (isVehicleLocked(vehicle)) {
+        player.outputChatBox('!{#ef4444}[HATA] Araç kilitli olduğu için bagaja erişemezsiniz.');
+        return;
+    }
+    const dbIdRaw = vehicle.getVariable('dbId');
+    const vehicleDbId = Number(dbIdRaw);
+    if (!Number.isInteger(vehicleDbId) || vehicleDbId <= 0) {
+        player.outputChatBox('!{#ef4444}[HATA] Bu aracın geçerli veritabanı ID bilgisi yok.');
+        return;
+    }
+    const trunkSizeRaw = Number(vehicle.getVariable('trunk_size'));
+    const trunkMaxWeight = Number.isFinite(trunkSizeRaw) && trunkSizeRaw > 0 ? trunkSizeRaw : 50;
+    await (0, inventory_1.openDualInventory)(player, inventory_1.ContainerType.VEHICLE_TRUNK, vehicleDbId, 'Araç Bagajı', trunkMaxWeight);
+});
+(0, cmdHandler_1.registerCommand)({
+    name: '/torpido',
+    syntax: '',
+    description: 'Araç içindeyken torpido envanterini açar',
+}, async (player) => {
+    if (!player.characterId) {
+        player.outputChatBox('!{#ef4444}[HATA] Karakter ile giriş yapmanız gerekiyor.');
+        return;
+    }
+    const vehicle = player.vehicle;
+    if (!vehicle) {
+        player.outputChatBox('!{#fbbf24}[HATA] Araç dışındayken torpidoya erişemezsiniz.');
+        return;
+    }
+    const dbIdRaw = vehicle.getVariable('dbId');
+    const vehicleDbId = Number(dbIdRaw);
+    if (!Number.isInteger(vehicleDbId) || vehicleDbId <= 0) {
+        player.outputChatBox('!{#ef4444}[HATA] Bu aracın geçerli veritabanı ID bilgisi yok.');
+        return;
+    }
+    await (0, inventory_1.openDualInventory)(player, inventory_1.ContainerType.VEHICLE_GLOVEBOX, vehicleDbId, 'Araç Torpidosu', 20);
 });
 // ─── /parket ─────────────────────────────────────────────────────────────────
 (0, cmdHandler_1.registerCommand)({
