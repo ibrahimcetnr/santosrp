@@ -26,6 +26,232 @@ interface OpenInventoryContext {
 const openInventoryContextByPlayer = new Map<number, OpenInventoryContext>();
 const containerViewersByKey = new Map<string, Set<number>>();
 const playerViewedContainerKey = new Map<number, string>();
+const activeTransactions = new Set<string>();
+
+function getLockKey(type: ContainerType, id: number): string {
+    return `type_${type}_id_${id}`;
+}
+
+function acquireTransactionLocks(keys: string[]): boolean {
+    const uniqueKeys = Array.from(new Set(keys));
+    if (uniqueKeys.some((key) => activeTransactions.has(key))) return false;
+    for (const key of uniqueKeys) activeTransactions.add(key);
+    return true;
+}
+
+function releaseTransactionLocks(keys: string[]): void {
+    for (const key of new Set(keys)) {
+        activeTransactions.delete(key);
+    }
+}
+
+interface DroppedWorldEntity {
+    object?: ObjectMp;
+    label?: TextLabelMp;
+    containerId: number;
+    slot: number;
+    position: DroppedPosition;
+}
+
+interface DroppedPosition {
+    x: number;
+    y: number;
+    z: number;
+}
+
+const droppedWorldByDbId = new Map<number, DroppedWorldEntity>();
+const PLAYER_MAX_WEIGHT = 30;
+
+function getPlayerById(playerId: number): PlayerMp | null {
+    const candidate = ((globalThis as any).mp?.players?.at?.(playerId)) as PlayerMp | undefined;
+    if (!candidate) return null;
+    return isPlayerValid(candidate) ? candidate : null;
+}
+
+function findVehicleByDbId(dbId: number): VehicleMp | null {
+    let matched: VehicleMp | null = null;
+    (globalThis as any).mp.vehicles.forEach((vehicle: VehicleMp) => {
+        if (matched) return;
+        const vehicleDbId = Number(vehicle.getVariable('dbId'));
+        if (Number.isInteger(vehicleDbId) && vehicleDbId === dbId) {
+            matched = vehicle;
+        }
+    });
+    return matched;
+}
+
+function getDroppedContainerPosition(containerId: number): DroppedPosition | null {
+    let nearest: DroppedPosition | null = null;
+    for (const entry of droppedWorldByDbId.values()) {
+        if (entry.containerId !== containerId) continue;
+        nearest = entry.position;
+        break;
+    }
+    return nearest;
+}
+
+function validateOtherContainerDistance(player: PlayerMp, otherType: ContainerType, otherId: number): boolean {
+    if (otherType === ContainerType.VEHICLE_TRUNK || otherType === ContainerType.VEHICLE_GLOVEBOX) {
+        const vehicle = findVehicleByDbId(otherId);
+        if (!vehicle || !vehicle.position || player.dist(vehicle.position) > 5.0) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Karşı envanter ile mesafeniz çok uzak.']);
+            return false;
+        }
+    }
+
+    if (otherType === ContainerType.DROPPED) {
+        const dropPos = getDroppedContainerPosition(otherId);
+        if (!dropPos) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Yerdeki eşya bulunamadı.']);
+            return false;
+        }
+
+        const dist = player.dist(new (globalThis as any).mp.Vector3(dropPos.x, dropPos.y, dropPos.z));
+        if (!Number.isFinite(dist) || dist > 3.0) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Yerdeki eşyaya çok uzaksınız.']);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function getContainerMaxWeight(type: ContainerType, id: number, viewerPlayerId?: number): number {
+    if (type === ContainerType.PLAYER) return PLAYER_MAX_WEIGHT;
+    if (type === ContainerType.VEHICLE_GLOVEBOX) return 20;
+    if (type === ContainerType.DROPPED) return Number.POSITIVE_INFINITY;
+
+    if (viewerPlayerId !== undefined) {
+        const context = openInventoryContextByPlayer.get(viewerPlayerId);
+        if (
+            context &&
+            context.otherType === type &&
+            context.otherId === id &&
+            typeof context.otherMaxWeight === 'number' &&
+            Number.isFinite(context.otherMaxWeight)
+        ) {
+            return context.otherMaxWeight;
+        }
+    }
+
+    if (type === ContainerType.VEHICLE_TRUNK) return 50;
+    return 30;
+}
+
+function getItemWeight(slot: InventorySlot): number {
+    const itemDef = getItemDef(slot.itemId);
+    if (!itemDef) return 0;
+    return itemDef.weight * slot.amount;
+}
+
+export async function getInventoryTotalWeight(containerType: ContainerType, containerId: number): Promise<number> {
+    const slots = await loadInventory(containerType, containerId);
+    return slots.reduce((sum, slot) => sum + getItemWeight(slot), 0);
+}
+
+function parseDroppedPosition(metadata: unknown): DroppedPosition | null {
+    if (!metadata || typeof metadata !== 'object') return null;
+    const anyMetadata = metadata as Record<string, unknown>;
+    const pos = anyMetadata.dropPos;
+    if (!pos || typeof pos !== 'object') return null;
+    const x = Number((pos as Record<string, unknown>).x);
+    const y = Number((pos as Record<string, unknown>).y);
+    const z = Number((pos as Record<string, unknown>).z);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+    return { x, y, z };
+}
+
+function resolveGroundZ(position: DroppedPosition): number {
+    const gameplay = (globalThis as any).mp?.game?.gameplay;
+    if (!gameplay) return position.z;
+
+    const nativeFn = gameplay.getGroundZFor_3dCoord || gameplay.getGroundZFor3dCoord;
+    if (typeof nativeFn !== 'function') return position.z;
+
+    try {
+        const groundZ = Number(nativeFn(position.x, position.y, position.z + 5, 0, false));
+        if (Number.isFinite(groundZ)) return groundZ;
+    } catch {
+        return position.z;
+    }
+
+    return position.z;
+}
+
+function resolveDroppedModel(itemId: string): number {
+    const itemDef = getItemDef(itemId);
+    const modelName = (itemDef as any)?.model || 'prop_paper_bag_01';
+    if (typeof modelName === 'number') return modelName;
+    return (globalThis as any).mp.joaat(modelName);
+}
+
+function destroyDroppedWorldEntity(slotDbId: number): void {
+    const worldEntity = droppedWorldByDbId.get(slotDbId);
+    if (!worldEntity) return;
+
+    if (worldEntity.object) worldEntity.object.destroy();
+    if (worldEntity.label) worldEntity.label.destroy();
+    droppedWorldByDbId.delete(slotDbId);
+}
+
+async function syncDroppedWorldEntity(slot: InventorySlot, containerId: number): Promise<void> {
+    if (!slot.id) return;
+
+    destroyDroppedWorldEntity(slot.id);
+
+    const droppedPos = parseDroppedPosition(slot.metadata);
+    if (!droppedPos || slot.amount <= 0) return;
+
+    const modelHash = resolveDroppedModel(slot.itemId);
+    const itemDef = getItemDef(slot.itemId);
+    const itemName = itemDef?.name || slot.itemId;
+
+    const object = (globalThis as any).mp.objects.new(
+        modelHash,
+        new (globalThis as any).mp.Vector3(droppedPos.x, droppedPos.y, droppedPos.z - 0.95),
+        { dimension: 0 }
+    ) as ObjectMp;
+
+    const label = (globalThis as any).mp.labels.new(
+        `${itemName} x${slot.amount} [E]`,
+        new (globalThis as any).mp.Vector3(droppedPos.x, droppedPos.y, droppedPos.z + 0.08),
+        {
+            drawDistance: 6,
+            los: false,
+            dimension: 0
+        }
+    ) as TextLabelMp;
+
+    droppedWorldByDbId.set(slot.id, {
+        object,
+        label,
+        containerId,
+        slot: slot.slot,
+        position: droppedPos
+    });
+}
+
+function createDroppedContainerId(): number {
+    const base = Math.floor(Date.now() % 1_000_000_000);
+    const random = Math.floor(Math.random() * 10_000);
+    return base + random;
+}
+
+function getNearestDroppedEntry(player: PlayerMp, maxDistance: number): { slotDbId: number; entry: DroppedWorldEntity } | null {
+    let nearest: { slotDbId: number; entry: DroppedWorldEntity } | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const [slotDbId, entry] of droppedWorldByDbId.entries()) {
+        const distance = player.dist(new (globalThis as any).mp.Vector3(entry.position.x, entry.position.y, entry.position.z));
+        if (!Number.isFinite(distance) || distance > maxDistance) continue;
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = { slotDbId, entry };
+        }
+    }
+
+    return nearest;
+}
 
 function setPlayerViewedContainer(playerId: number, key?: string): void {
     const oldKey = playerViewedContainerKey.get(playerId);
@@ -288,8 +514,8 @@ export async function openDualInventory(
 
     const payload: Record<string, unknown> = {
         slots: playerSlots,
-        maxWeight: 30,
-        weight: calcWeight(playerSlots),
+        maxWeight: PLAYER_MAX_WEIGHT,
+        weight: await getInventoryTotalWeight(ContainerType.PLAYER, characterId),
         items: ITEM_REGISTRY,
         charName: (player as any).name || 'Oyuncu'
     };
@@ -304,7 +530,7 @@ export async function openDualInventory(
         payload.otherMaxWeight = presentation.maxWeight;
         payload.otherGridRows = presentation.gridRows;
         payload.otherGridCols = presentation.gridCols;
-        payload.otherWeight = calcWeight(otherSlots);
+        payload.otherWeight = await getInventoryTotalWeight(otherType, otherId);
 
         openInventoryContextByPlayer.set((player as any).id, {
             otherType,
@@ -351,6 +577,14 @@ async function notifyContainerViewers(type: ContainerType, id: number, excludePl
     }
 }
 
+interface TransferResult {
+    success: boolean;
+    movedAmount: number;
+    source?: InventorySlot;
+    target?: InventorySlot;
+    sourceRemoved: boolean;
+}
+
 async function transferBetweenContainers(params: {
     fromType: ContainerType;
     fromId: number;
@@ -361,12 +595,12 @@ async function transferBetweenContainers(params: {
     toSlots: InventorySlot[];
     toSlot: number;
     amountRaw: unknown;
-}): Promise<boolean> {
+}): Promise<TransferResult> {
     const source = getSlotByIndex(params.fromSlots, params.fromSlot);
-    if (!source) return false;
+    if (!source) return { success: false, movedAmount: 0, sourceRemoved: false };
 
     const moveAmount = getMoveAmount(source, params.amountRaw);
-    if (moveAmount <= 0) return false;
+    if (moveAmount <= 0) return { success: false, movedAmount: 0, sourceRemoved: false };
 
     let targetSlot = params.toSlot;
     if (targetSlot < 0) {
@@ -376,12 +610,14 @@ async function transferBetweenContainers(params: {
 
     const target = getSlotByIndex(params.toSlots, targetSlot);
     if (target && !canStackSlots(source, target)) {
-        return false;
+        return { success: false, movedAmount: 0, sourceRemoved: false };
     }
 
+    let savedTarget: InventorySlot | undefined;
     if (target) {
         target.amount += moveAmount;
         await saveSlot(params.toType, params.toId, target);
+        savedTarget = target;
     } else {
         const created: InventorySlot = {
             slot: targetSlot,
@@ -391,17 +627,26 @@ async function transferBetweenContainers(params: {
         };
         await saveSlot(params.toType, params.toId, created);
         params.toSlots.push(created);
+        savedTarget = created;
     }
 
     source.amount -= moveAmount;
+    let sourceRemoved = false;
     if (source.amount <= 0) {
         await saveSlot(params.fromType, params.fromId, source);
         removeSlotFromCache(params.fromSlots, source);
+        sourceRemoved = true;
     } else {
         await saveSlot(params.fromType, params.fromId, source);
     }
 
-    return true;
+    return {
+        success: true,
+        movedAmount: moveAmount,
+        source,
+        target: savedTarget,
+        sourceRemoved
+    };
 }
 
 safeEvent('client:inventory:requestOpen', async (player: PlayerMp, otherTypeRaw?: unknown, otherIdRaw?: unknown) => {
@@ -436,15 +681,29 @@ safeEvent('server:inventory:moveSlot', async (
     const toSlot = toInt(toSlotRaw);
     if (fromSlot === null || toSlot === null || fromSlot < 0 || toSlot < 0 || fromSlot === toSlot) return;
 
-    const slots = await loadInventory(ContainerType.PLAYER, characterId);
-    const source = getSlotByIndex(slots, fromSlot);
-    if (!source) return;
+    const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
+    const lockKeys = [
+        getLockKey(ContainerType.PLAYER, characterId),
+        getLockKey(otherContext?.type ?? ContainerType.PLAYER, otherContext?.id ?? characterId)
+    ];
+    if (!acquireTransactionLocks(lockKeys)) return;
 
-    const moveAmount = getMoveAmount(source, amountRaw);
-    if (moveAmount <= 0) return;
+    try {
+        const slots = await loadInventory(ContainerType.PLAYER, characterId);
+        const currentWeight = await getInventoryTotalWeight(ContainerType.PLAYER, characterId);
+        if (currentWeight > PLAYER_MAX_WEIGHT) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Envanter ağırlık kapasiteniz aşıldığı için işlem yapılamadı.']);
+            return;
+        }
 
-    const target = getSlotByIndex(slots, toSlot);
-    if (target) {
+        const source = getSlotByIndex(slots, fromSlot);
+        if (!source) return;
+
+        const moveAmount = getMoveAmount(source, amountRaw);
+        if (moveAmount <= 0) return;
+
+        const target = getSlotByIndex(slots, toSlot);
+        if (target) {
         if (canStackSlots(source, target)) {
             target.amount += moveAmount;
             source.amount -= moveAmount;
@@ -463,7 +722,7 @@ safeEvent('server:inventory:moveSlot', async (
             source.slot = oldTargetSlot;
             target.slot = oldSourceSlot;
         }
-    } else {
+        } else {
         if (moveAmount === source.amount) {
             source.slot = toSlot;
             await saveSlot(ContainerType.PLAYER, characterId, source);
@@ -480,13 +739,15 @@ safeEvent('server:inventory:moveSlot', async (
             await saveSlot(ContainerType.PLAYER, characterId, splitSlot);
             slots.push(splitSlot);
         }
-    }
+        }
 
-    const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
-    if (otherContext) {
-        openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+        if (otherContext) {
+            openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+        }
+        await refreshOpenInventory(player);
+    } finally {
+        releaseTransactionLocks(lockKeys);
     }
-    await refreshOpenInventory(player);
 });
 
 safeEvent('server:inventory:moveOtherSlot', async (
@@ -618,11 +879,34 @@ safeEvent('server:inventory:takeFromOther', async (
     const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
     if (!otherContext || otherContext.type === ContainerType.PLAYER) return;
 
-    const fromSlots = await loadInventory(otherContext.type, otherContext.id);
-    const toSlots = await loadInventory(ContainerType.PLAYER, characterId);
-    await ensureMandatoryIdentityItem(characterId, toSlots);
+    const lockKeys = [
+        getLockKey(ContainerType.PLAYER, characterId),
+        getLockKey(otherContext.type, otherContext.id)
+    ];
+    if (!acquireTransactionLocks(lockKeys)) return;
 
-    const success = await transferBetweenContainers({
+    try {
+        if (!validateOtherContainerDistance(player, otherContext.type, otherContext.id)) return;
+
+        const fromSlots = await loadInventory(otherContext.type, otherContext.id);
+        const toSlots = await loadInventory(ContainerType.PLAYER, characterId);
+        await ensureMandatoryIdentityItem(characterId, toSlots);
+
+        const source = getSlotByIndex(fromSlots, fromSlot);
+        if (!source) return;
+
+        const moveAmount = getMoveAmount(source, amountRaw);
+        if (moveAmount <= 0) return;
+
+        const itemDef = getItemDef(source.itemId);
+        const addedWeight = (itemDef?.weight || 0) * moveAmount;
+        const playerWeight = await getInventoryTotalWeight(ContainerType.PLAYER, characterId);
+        if (playerWeight + addedWeight > PLAYER_MAX_WEIGHT) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Envanter ağırlık kapasiteniz yetersiz!']);
+            return;
+        }
+
+        const transfer = await transferBetweenContainers({
         fromType: otherContext.type,
         fromId: otherContext.id,
         fromSlots,
@@ -633,11 +917,22 @@ safeEvent('server:inventory:takeFromOther', async (
         toSlot,
         amountRaw
     });
-    if (!success) return;
+        if (!transfer.success) return;
 
-    openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
-    await refreshOpenInventory(player);
-    await notifyContainerViewers(otherContext.type, otherContext.id, (player as any).id as number);
+        if (otherContext.type === ContainerType.DROPPED && transfer.source?.id) {
+        if (transfer.sourceRemoved) {
+            destroyDroppedWorldEntity(transfer.source.id);
+        } else {
+            await syncDroppedWorldEntity(transfer.source, otherContext.id);
+        }
+        }
+
+        openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+        await refreshOpenInventory(player);
+        await notifyContainerViewers(otherContext.type, otherContext.id, (player as any).id as number);
+    } finally {
+        releaseTransactionLocks(lockKeys);
+    }
 });
 
 safeEvent('server:inventory:putToOther', async (
@@ -659,12 +954,33 @@ safeEvent('server:inventory:putToOther', async (
     const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
     if (!otherContext || otherContext.type === ContainerType.PLAYER) return;
 
-    const fromSlots = await loadInventory(ContainerType.PLAYER, characterId);
-    const source = getSlotByIndex(fromSlots, fromSlot);
-    if (!source || source.itemId === 'identity') return;
+    const lockKeys = [
+        getLockKey(ContainerType.PLAYER, characterId),
+        getLockKey(otherContext.type, otherContext.id)
+    ];
+    if (!acquireTransactionLocks(lockKeys)) return;
 
-    const toSlots = await loadInventory(otherContext.type, otherContext.id);
-    const success = await transferBetweenContainers({
+    try {
+        if (!validateOtherContainerDistance(player, otherContext.type, otherContext.id)) return;
+
+        const fromSlots = await loadInventory(ContainerType.PLAYER, characterId);
+        const source = getSlotByIndex(fromSlots, fromSlot);
+        if (!source || source.itemId === 'identity') return;
+
+        const moveAmount = getMoveAmount(source, amountRaw);
+        if (moveAmount <= 0) return;
+
+        const toSlots = await loadInventory(otherContext.type, otherContext.id);
+        const itemDef = getItemDef(source.itemId);
+        const addedWeight = (itemDef?.weight || 0) * moveAmount;
+        const otherWeight = await getInventoryTotalWeight(otherContext.type, otherContext.id);
+        const otherMaxWeight = getContainerMaxWeight(otherContext.type, otherContext.id, (player as any).id as number);
+        if (Number.isFinite(otherMaxWeight) && otherWeight + addedWeight > otherMaxWeight) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Karşı envanterin ağırlık kapasitesi yetersiz!']);
+            return;
+        }
+
+        const transfer = await transferBetweenContainers({
         fromType: ContainerType.PLAYER,
         fromId: characterId,
         fromSlots,
@@ -675,11 +991,223 @@ safeEvent('server:inventory:putToOther', async (
         toSlot,
         amountRaw
     });
-    if (!success) return;
+        if (!transfer.success) return;
 
-    openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+        openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+        await refreshOpenInventory(player);
+        await notifyContainerViewers(otherContext.type, otherContext.id, (player as any).id as number);
+    } finally {
+        releaseTransactionLocks(lockKeys);
+    }
+});
+
+safeEvent('server:inventory:giveItem', async (
+    player: PlayerMp,
+    slotRaw: unknown,
+    targetPlayerIdRaw: unknown,
+    amountRaw: unknown,
+    otherTypeRaw?: unknown,
+    otherIdRaw?: unknown
+) => {
+    if (!isPlayerValid(player)) return;
+    const characterId = player.characterId;
+    if (!characterId) return;
+
+    const slotIndex = toInt(slotRaw);
+    const targetPlayerId = toInt(targetPlayerIdRaw);
+    if (slotIndex === null || slotIndex < 0 || targetPlayerId === null || targetPlayerId <= 0) return;
+
+    const targetPlayer = getPlayerById(targetPlayerId);
+    if (!targetPlayer || !targetPlayer.characterId || targetPlayer.id === player.id) return;
+
+    const targetCharacterId = targetPlayer.characterId;
+    const lockKeys = [
+        getLockKey(ContainerType.PLAYER, characterId),
+        getLockKey(ContainerType.PLAYER, targetCharacterId)
+    ];
+    if (!acquireTransactionLocks(lockKeys)) return;
+
+    try {
+
+        const distance = player.dist(targetPlayer.position);
+        if (!Number.isFinite(distance) || distance > 5) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Hedef oyuncu yeterince yakın değil.']);
+            return;
+        }
+
+        const fromSlots = await loadInventory(ContainerType.PLAYER, characterId);
+        const source = getSlotByIndex(fromSlots, slotIndex);
+        if (!source || source.itemId === 'identity') return;
+
+        const moveAmount = getMoveAmount(source, amountRaw);
+        if (moveAmount <= 0) return;
+
+        const targetWeight = await getInventoryTotalWeight(ContainerType.PLAYER, targetCharacterId);
+        const itemDef = getItemDef(source.itemId);
+        const addedWeight = (itemDef?.weight || 0) * moveAmount;
+        if (targetWeight + addedWeight > PLAYER_MAX_WEIGHT) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Hedef oyuncunun envanter ağırlık kapasitesi yetersiz!']);
+            targetPlayer.call('chat:push', ['!{#ef4444}[HATA] Envanter ağırlık kapasiteniz yetersiz!']);
+            return;
+        }
+
+        const toSlots = await loadInventory(ContainerType.PLAYER, targetCharacterId);
+        await ensureMandatoryIdentityItem(targetCharacterId, toSlots);
+
+        const transfer = await transferBetweenContainers({
+        fromType: ContainerType.PLAYER,
+        fromId: characterId,
+        fromSlots,
+        fromSlot: slotIndex,
+        toType: ContainerType.PLAYER,
+        toId: targetCharacterId,
+        toSlots,
+        toSlot: -1,
+        amountRaw: moveAmount
+    });
+        if (!transfer.success) return;
+
+        const transferredItemName = itemDef?.name || source.itemId;
+        player.call('chat:push', [`!{#22c55e}[ENVANTER] ${transfer.movedAmount}x ${transferredItemName} eşyasını #${targetPlayer.id} oyuncusuna verdin.`]);
+        targetPlayer.call('chat:push', [`!{#22c55e}[ENVANTER] #${player.id} sana ${transfer.movedAmount}x ${transferredItemName} verdi.`]);
+
+        const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
+        if (otherContext) {
+            openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+        }
+
+        await refreshOpenInventory(player);
+        await refreshOpenInventory(targetPlayer);
+    } finally {
+        releaseTransactionLocks(lockKeys);
+    }
+});
+
+safeEvent('server:inventory:pickupItem', async (
+    player: PlayerMp,
+    droppedContainerIdRaw: unknown,
+    slotRaw: unknown,
+    amountRaw: unknown,
+    otherTypeRaw?: unknown,
+    otherIdRaw?: unknown
+) => {
+    if (!isPlayerValid(player)) return;
+    const characterId = player.characterId;
+    if (!characterId) return;
+
+    const droppedContainerId = toInt(droppedContainerIdRaw);
+    const fromSlot = toInt(slotRaw);
+    if (droppedContainerId === null || droppedContainerId <= 0 || fromSlot === null || fromSlot < 0) return;
+
+    const fromSlots = await loadInventory(ContainerType.DROPPED, droppedContainerId);
+    const source = getSlotByIndex(fromSlots, fromSlot);
+    if (!source) return;
+
+    const moveAmount = getMoveAmount(source, amountRaw);
+    if (moveAmount <= 0) return;
+
+    const itemDef = getItemDef(source.itemId);
+    const addedWeight = (itemDef?.weight || 0) * moveAmount;
+    const playerWeight = await getInventoryTotalWeight(ContainerType.PLAYER, characterId);
+    if (playerWeight + addedWeight > PLAYER_MAX_WEIGHT) {
+        player.call('chat:push', ['!{#ef4444}[HATA] Envanter ağırlık kapasiteniz yetersiz!']);
+        return;
+    }
+
+    const toSlots = await loadInventory(ContainerType.PLAYER, characterId);
+    await ensureMandatoryIdentityItem(characterId, toSlots);
+
+    const transfer = await transferBetweenContainers({
+        fromType: ContainerType.DROPPED,
+        fromId: droppedContainerId,
+        fromSlots,
+        fromSlot,
+        toType: ContainerType.PLAYER,
+        toId: characterId,
+        toSlots,
+        toSlot: -1,
+        amountRaw: moveAmount
+    });
+    if (!transfer.success) return;
+
+    if (transfer.source?.id) {
+        if (transfer.sourceRemoved) {
+            destroyDroppedWorldEntity(transfer.source.id);
+        } else {
+            await syncDroppedWorldEntity(transfer.source, droppedContainerId);
+        }
+    }
+
+    const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
+    if (otherContext) {
+        openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
+    }
+
     await refreshOpenInventory(player);
-    await notifyContainerViewers(otherContext.type, otherContext.id, (player as any).id as number);
+    await notifyContainerViewers(ContainerType.DROPPED, droppedContainerId, (player as any).id as number);
+});
+
+safeEvent('server:inventory:pickupNearest', async (player: PlayerMp) => {
+    if (!isPlayerValid(player)) return;
+    const characterId = player.characterId;
+    if (!characterId) return;
+
+    const nearestDropped = getNearestDroppedEntry(player, 3.0);
+    if (!nearestDropped) return;
+
+    const droppedContainerId = nearestDropped.entry.containerId;
+    const fromSlot = nearestDropped.entry.slot;
+    const lockKeys = [
+        getLockKey(ContainerType.PLAYER, characterId),
+        getLockKey(ContainerType.DROPPED, droppedContainerId)
+    ];
+    if (!acquireTransactionLocks(lockKeys)) return;
+
+    try {
+        const fromSlots = await loadInventory(ContainerType.DROPPED, droppedContainerId);
+        const source = getSlotByIndex(fromSlots, fromSlot);
+        if (!source) return;
+
+        const moveAmount = source.amount;
+        if (moveAmount <= 0) return;
+
+        const itemDef = getItemDef(source.itemId);
+        const addedWeight = (itemDef?.weight || 0) * moveAmount;
+        const playerWeight = await getInventoryTotalWeight(ContainerType.PLAYER, characterId);
+        if (playerWeight + addedWeight > PLAYER_MAX_WEIGHT) {
+            player.call('chat:push', ['!{#ef4444}[HATA] Envanter ağırlık kapasiteniz yetersiz!']);
+            return;
+        }
+
+        const toSlots = await loadInventory(ContainerType.PLAYER, characterId);
+        await ensureMandatoryIdentityItem(characterId, toSlots);
+
+        const transfer = await transferBetweenContainers({
+            fromType: ContainerType.DROPPED,
+            fromId: droppedContainerId,
+            fromSlots,
+            fromSlot,
+            toType: ContainerType.PLAYER,
+            toId: characterId,
+            toSlots,
+            toSlot: -1,
+            amountRaw: moveAmount
+        });
+        if (!transfer.success) return;
+
+        if (transfer.source?.id) {
+            if (transfer.sourceRemoved) {
+                destroyDroppedWorldEntity(transfer.source.id);
+            } else {
+                await syncDroppedWorldEntity(transfer.source, droppedContainerId);
+            }
+        }
+
+        await refreshOpenInventory(player);
+        await notifyContainerViewers(ContainerType.DROPPED, droppedContainerId, (player as any).id as number);
+    } finally {
+        releaseTransactionLocks(lockKeys);
+    }
 });
 
 safeEvent('server:inventory:useItem', async (
@@ -740,10 +1268,13 @@ safeEvent('server:inventory:dropItem', async (
     const source = getSlotByIndex(playerSlots, slotIndex);
     if (!source || source.itemId === 'identity') return;
 
-    const droppedContainerId = characterId;
+    const moveAmount = getMoveAmount(source, amountRaw);
+    if (moveAmount <= 0) return;
+
+    const droppedContainerId = createDroppedContainerId();
     const droppedSlots = await loadInventory(ContainerType.DROPPED, droppedContainerId);
 
-    const success = await transferBetweenContainers({
+    const transfer = await transferBetweenContainers({
         fromType: ContainerType.PLAYER,
         fromId: characterId,
         fromSlots: playerSlots,
@@ -752,15 +1283,74 @@ safeEvent('server:inventory:dropItem', async (
         toId: droppedContainerId,
         toSlots: droppedSlots,
         toSlot: -1,
-        amountRaw
+        amountRaw: moveAmount
     });
-    if (!success) return;
+    if (!transfer.success || !transfer.target) return;
+
+    const targetSlot = transfer.target;
+    const sourceMeta = targetSlot.metadata && typeof targetSlot.metadata === 'object'
+        ? targetSlot.metadata as Record<string, unknown>
+        : {};
+
+    const dropPos: DroppedPosition = {
+        x: player.position.x,
+        y: player.position.y,
+        z: resolveGroundZ({ x: player.position.x, y: player.position.y, z: player.position.z })
+    };
+
+    targetSlot.metadata = {
+        ...sourceMeta,
+        dropPos,
+        droppedAt: Date.now()
+    };
+    await saveSlot(ContainerType.DROPPED, droppedContainerId, targetSlot);
+    await syncDroppedWorldEntity(targetSlot, droppedContainerId);
 
     const otherContext = parseOtherContainerContext(otherTypeRaw, otherIdRaw);
     if (otherContext) {
         openInventoryContextByPlayer.set((player as any).id, { otherType: otherContext.type, otherId: otherContext.id });
     }
     await refreshOpenInventory(player);
+});
+
+async function hydrateDroppedWorldItems(): Promise<void> {
+    const res = await query(
+        'SELECT id, parent_id as "parentId", slot, item_id as "itemId", amount, metadata FROM inventory_items WHERE parent_type = $1',
+        [ContainerType.DROPPED]
+    );
+
+    for (const row of res.rows as Array<Record<string, unknown>>) {
+        const slotDbId = Number(row.id);
+        const parentId = Number(row.parentId);
+        const slotIndex = Number(row.slot);
+        const itemId = String(row.itemId || '');
+        const amount = Number(row.amount);
+
+        if (!Number.isInteger(slotDbId) || slotDbId <= 0) continue;
+        if (!Number.isInteger(parentId) || parentId <= 0) continue;
+        if (!Number.isInteger(slotIndex) || slotIndex < 0) continue;
+        if (!itemId || !Number.isInteger(amount) || amount <= 0) continue;
+
+        const cacheKey = getContainerKey(ContainerType.DROPPED, parentId);
+        const cachedSlots = inventories.get(cacheKey) || [];
+        const existing = cachedSlots.find((entry) => entry.slot === slotIndex);
+        if (!existing) {
+            const slot: InventorySlot = {
+                id: slotDbId,
+                slot: slotIndex,
+                itemId,
+                amount,
+                metadata: row.metadata as Record<string, unknown>
+            };
+            cachedSlots.push(slot);
+            inventories.set(cacheKey, cachedSlots);
+            await syncDroppedWorldEntity(slot, parentId);
+        }
+    }
+}
+
+void hydrateDroppedWorldItems().catch((error) => {
+    console.error('[INVENTORY] Dropped item world hydrate başarısız:', error);
 });
 
 safeEvent('playerQuit', async (player: PlayerMp) => {

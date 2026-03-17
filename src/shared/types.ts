@@ -217,6 +217,7 @@ export interface ItemDef {
     name: string;
     type: string;
   icon?: string;
+    model?: string;
     weight: number;
     usable: boolean;
 }

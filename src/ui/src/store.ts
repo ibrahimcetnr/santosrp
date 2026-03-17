@@ -38,6 +38,7 @@ export const vehicleParkingBrakeOn = writable<boolean>(false);
 // Envanter
 export const isInventoryOpen = writable<boolean>(false);
 export const inventoryPayload = writable<any | null>(null);
+export const inventoryNearbyPlayers = writable<Array<{ id: number; name: string }>>([]);
 
 // Chat / Bildirimler vb eklenebilir.
 

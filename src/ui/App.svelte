@@ -19,7 +19,8 @@
     vehicleLightsOn,
     vehicleParkingBrakeOn,
     isInventoryOpen,
-    inventoryPayload
+    inventoryPayload,
+    inventoryNearbyPlayers
   } from './src/store';
   import CharacterSelect from './src/components/CharacterSelect.svelte';
   import CharacterCreator from './src/components/CharacterCreator.svelte';
@@ -170,11 +171,27 @@
       const payload = safeParseJson<any | null>(payloadInput, null);
       if (!payload) return;
       inventoryPayload.set(payload);
+      inventoryNearbyPlayers.set([]);
       isInventoryOpen.set(true);
     };
 
     window.closeInventory = () => {
       isInventoryOpen.set(false);
+      inventoryNearbyPlayers.set([]);
+    };
+
+    window.setInventoryNearbyPlayers = (payloadInput: string | Array<{ id: number; name: string }>) => {
+      const payload = safeParseJson<Array<{ id: number; name: string }> | null>(payloadInput, null);
+      if (!Array.isArray(payload)) {
+        inventoryNearbyPlayers.set([]);
+        return;
+      }
+
+      inventoryNearbyPlayers.set(
+        payload
+          .filter((entry) => Number.isInteger(entry?.id) && Number(entry.id) > 0 && typeof entry?.name === 'string')
+          .map((entry) => ({ id: Number(entry.id), name: entry.name }))
+      );
     };
 
     window.setSavedCredentials = (user: string, pass: string) => {
@@ -269,6 +286,7 @@
     delete (window as any).chv;
     delete (window as any).openInventory;
     delete (window as any).closeInventory;
+    delete (window as any).setInventoryNearbyPlayers;
     delete (window as any).setSavedCredentials;
     delete (window as any).onLoginError;
     delete (window as any).onLoginSuccess;

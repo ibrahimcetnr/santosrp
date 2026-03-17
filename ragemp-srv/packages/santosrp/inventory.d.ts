@@ -8,6 +8,7 @@ export declare enum ContainerType {
     PROPERTY = 5
 }
 export declare const inventories: Map<string, InventorySlot[]>;
+export declare function getInventoryTotalWeight(containerType: ContainerType, containerId: number): Promise<number>;
 export declare function getContainerKey(type: ContainerType, id: number): string;
 export declare function loadInventory(type: ContainerType, containerId: number): Promise<InventorySlot[]>;
 export declare function saveSlot(type: ContainerType, containerId: number, slot: typeof inventories extends Map<string, (infer S)[]> ? S : never): Promise<void>;

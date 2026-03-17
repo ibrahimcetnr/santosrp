@@ -3,7 +3,7 @@
     import { SvelteMap } from 'svelte/reactivity';
     import Icon from './Icon.svelte';
   import type { ItemDef, InventorySlot } from '../../../../shared/types';
-  import { isInventoryOpen, inventoryPayload } from '../store';
+    import { isInventoryOpen, inventoryNearbyPlayers, inventoryPayload } from '../store';
 
 
   // ── Tipler ────────────────────────────────────────────────────────────────
@@ -22,6 +22,11 @@
         otherGridRows?:  number;
         otherGridCols?:  number;
   }
+
+    interface NearbyPlayerOption {
+        id: number;
+        name: string;
+    }
 
   // ── State (Svelte 5 Runes) ────────────────────────────────────────────────
   let charName       = $state('Karakter');
@@ -60,6 +65,13 @@
     let splitValue = $state('1');
     let splitResolver = $state<((value: number | null) => void) | null>(null);
 
+    let giveOpen = $state(false);
+    let giveLoadingNearby = $state(false);
+    let giveSlot = $state<number | null>(null);
+    let giveMax = $state(1);
+    let giveAmount = $state('1');
+    let giveTargetPlayerId = $state('');
+
   // Toplam Gösterilecek Slot Sayısı (Görseldeki gibi kompakt bir grid için 25 veya 30 idealdir, 30 yapıyoruz)
     const GRID_COLUMNS = 7;
     const GRID_ROWS = 3;
@@ -90,9 +102,64 @@
   function closeInv() {
     isInventoryOpen.set(false);
     ctxVisible = false;
+        giveOpen = false;
         activeCategory = 'general';
         triggerMP('client:inventory:closeRequest');
   }
+
+    function closeGiveModal() {
+        giveOpen = false;
+        giveLoadingNearby = false;
+        giveSlot = null;
+        giveMax = 1;
+        giveAmount = '1';
+        giveTargetPlayerId = '';
+    }
+
+    function openGiveModal(entry: InventorySlot, slot: number) {
+        giveSlot = slot;
+        giveMax = Math.max(1, entry.amount);
+        giveAmount = `${Math.max(1, entry.amount)}`;
+        giveTargetPlayerId = '';
+        giveLoadingNearby = true;
+
+        triggerMP('client:inventory:getNearbyPlayers');
+
+        setTimeout(() => {
+            if (giveLoadingNearby) {
+                giveLoadingNearby = false;
+                giveOpen = true;
+                const nearby = $inventoryNearbyPlayers as NearbyPlayerOption[];
+                if (nearby.length > 0) giveTargetPlayerId = `${nearby[0].id}`;
+            }
+        }, 150);
+    }
+
+    function confirmGiveModal() {
+        if (giveSlot === null) {
+            closeGiveModal();
+            return;
+        }
+
+        const targetId = Number.parseInt(giveTargetPlayerId, 10);
+        const amount = Number.parseInt(giveAmount, 10);
+
+        if (!Number.isInteger(targetId) || targetId <= 0) return;
+        if (!Number.isInteger(amount) || amount <= 0) return;
+
+        const otherCtxType = otherType;
+        const otherCtxId = otherId;
+        triggerMP(
+            'server:inventory:giveItem',
+            giveSlot,
+            targetId,
+            Math.min(amount, giveMax),
+            otherCtxType,
+            otherCtxId
+        );
+
+        closeGiveModal();
+    }
 
     function requestSplitAmount(maxAmount: number, title: string): Promise<number | null> {
         if (maxAmount <= 1) return Promise.resolve(1);
@@ -260,6 +327,17 @@
         }
   });
 
+    $effect(() => {
+        const nearby = $inventoryNearbyPlayers as NearbyPlayerOption[];
+        if (!giveLoadingNearby) return;
+
+        giveLoadingNearby = false;
+        giveOpen = true;
+        if (nearby.length > 0) {
+            giveTargetPlayerId = `${nearby[0].id}`;
+        }
+    });
+
   // ── Sürükle-Bırak İşlemleri ────────────────────────────────────────────────
   function onDragStart(e: DragEvent, slot: number, origin: 'self' | 'other') {
     dragging = true;
@@ -332,7 +410,7 @@
     ctxVisible = true;
   }
 
-    async function handleAction(action: 'use' | 'drop' | 'take' | 'split') {
+    async function handleAction(action: 'use' | 'drop' | 'take' | 'split' | 'give') {
     if (ctxSlot === null) return;
     const entry = ctxOrigin === 'self' ? playerSlots.get(ctxSlot) : otherSlots.get(ctxSlot);
     if (!entry) return;
@@ -340,6 +418,13 @@
         const hasEntryMetadata = !!entry.metadata && (typeof entry.metadata !== 'object' || Object.keys(entry.metadata).length > 0);
     const otherCtxType = otherType;
     const otherCtxId = otherId;
+        if (action === 'give') {
+            if (ctxOrigin !== 'self') return;
+            openGiveModal(entry, ctxSlot);
+            ctxVisible = false;
+            return;
+        }
+
         const amountForAction = (action === 'drop' || action === 'take' || action === 'split')
             ? await requestSplitAmount(
                     entry.amount,
@@ -512,6 +597,36 @@
             </div>
         {/if}
 
+        {#if giveOpen}
+            <div class="split-modal-backdrop" onclick={closeGiveModal}>
+                <div class="split-modal" onclick={(e) => e.stopPropagation()}>
+                    <div class="split-title">Eşya Ver</div>
+                    <div class="split-desc">Yakındaki oyuncu ve miktarı seç.</div>
+                    <select class="give-select" bind:value={giveTargetPlayerId}>
+                        <option value="" disabled selected>Oyuncu seçin</option>
+                        {#each $inventoryNearbyPlayers as nearbyPlayer}
+                            <option value={`${nearbyPlayer.id}`}>#{nearbyPlayer.id} - {nearbyPlayer.name}</option>
+                        {/each}
+                    </select>
+                    <input
+                        class="split-input"
+                        type="number"
+                        min="1"
+                        max={giveMax}
+                        bind:value={giveAmount}
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter') confirmGiveModal();
+                            if (e.key === 'Escape') closeGiveModal();
+                        }}
+                    />
+                    <div class="split-actions">
+                        <button type="button" class="split-btn ghost" onclick={closeGiveModal}>İptal</button>
+                        <button type="button" class="split-btn" onclick={confirmGiveModal}>Onayla</button>
+                    </div>
+                </div>
+            </div>
+        {/if}
+
     </div>
 
     {#if ctxVisible && ctxSlot !== null}
@@ -532,6 +647,7 @@
                     {#if entry.amount > 1 && (!entry.metadata || (typeof entry.metadata === 'object' && Object.keys(entry.metadata).length === 0))}
                         <div class="ctx-btn" onclick={() => handleAction('split')}>Ayır</div>
                     {/if}
+                    <div class="ctx-btn" onclick={() => handleAction('give')}>Eşya Ver</div>
                     <div class="ctx-btn text-red" onclick={() => handleAction('drop')}>Yere At</div>
                 {:else}
                     <div class="ctx-btn" onclick={() => handleAction('take')}>Envantere Al</div>
@@ -815,6 +931,22 @@
 }
 
 .split-input:focus {
+    border-color: rgba(59, 130, 246, 0.7);
+}
+
+.give-select {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 0.7vw;
+    padding: 0.38vw 0.5vw;
+    margin-bottom: 0.45vw;
+    outline: none;
+}
+
+.give-select:focus {
     border-color: rgba(59, 130, 246, 0.7);
 }
 

@@ -1107,6 +1107,10 @@ mp.keys.bind(75, true, () => {
   if (!mp.players.local.vehicle) return;
   mp.events.callRemote("runCommand", "/kemer");
 });
+mp.keys.bind(69, true, () => {
+  if (isUIOpen2()) return;
+  mp.events.callRemote("server:inventory:pickupNearest");
+});
 mp.events.add("entityStreamIn", (entity) => {
   if (entity.type == "vehicle") {
     const eStatus = entity.getVariable("engine");
@@ -1402,9 +1406,45 @@ mp.events.add("server:inventory:useItem", (slot, otherType, otherId) => {
 mp.events.add("server:inventory:dropItem", (slot, amount, otherType, otherId) => {
   mp.events.callRemote("server:inventory:dropItem", slot, amount, otherType ?? null, otherId ?? null);
 });
+mp.events.add("server:inventory:giveItem", (slot, targetPlayerId, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:giveItem", slot, targetPlayerId, amount, otherType ?? null, otherId ?? null);
+});
+mp.events.add("server:inventory:pickupItem", (droppedContainerId, slot, amount, otherType, otherId) => {
+  mp.events.callRemote("server:inventory:pickupItem", droppedContainerId, slot, amount, otherType ?? null, otherId ?? null);
+});
 mp.events.add("server:inventory:splitSlot", (slot, amount, otherType, otherId) => {
   mp.events.callRemote("server:inventory:splitSlot", slot, amount, otherType ?? null, otherId ?? null);
 });
 mp.events.add("client:inventory:closeRequest", () => {
   mp.events.callRemote("server:inventory:close");
+});
+mp.events.add("client:inventory:getNearbyPlayers", () => {
+  const localPlayer = mp.players.local;
+  if (!localPlayer || !localPlayer.position) return;
+  const nearbyPlayers = [];
+  mp.players.forEachInStreamRange((target) => {
+    if (!target || target === localPlayer || !target.position) return;
+    const distance = mp.game.gameplay.getDistanceBetweenCoords(
+      localPlayer.position.x,
+      localPlayer.position.y,
+      localPlayer.position.z,
+      target.position.x,
+      target.position.y,
+      target.position.z,
+      true
+    );
+    if (distance > 5) return;
+    const targetId = Number(target.remoteId);
+    if (!Number.isInteger(targetId) || targetId <= 0) return;
+    nearbyPlayers.push({
+      id: targetId,
+      name: target.name || `Oyuncu ${targetId}`
+    });
+  });
+  nearbyPlayers.sort((a, b) => a.id - b.id);
+  Promise.resolve().then(() => (init_auth(), auth_exports)).then(({ getGameBrowser: getGameBrowser2 }) => {
+    const browser = getGameBrowser2();
+    if (!browser) return;
+    browser.execute(`window.setInventoryNearbyPlayers && window.setInventoryNearbyPlayers(${JSON.stringify(nearbyPlayers)})`);
+  });
 });
