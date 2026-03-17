@@ -297,10 +297,16 @@ function sendToHUD(fn, data) {
   }
 }
 function getZoneName() {
+  const pos = mp.players.local.position;
   try {
-    const raw = mp.players.local.zone;
-    if (raw && typeof raw === "string" && raw.length > 0) {
-      return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase().replace(/_/g, " ");
+    const zoneCode = mp.game.zone.getNameOfZone(pos.x, pos.y, pos.z);
+    if (!zoneCode) return "";
+    const label = mp.game.ui.getLabelText(zoneCode);
+    if (label && label !== "NULL") {
+      return label;
+    }
+    if (typeof zoneCode === "string" && zoneCode.length > 0) {
+      return zoneCode.charAt(0).toUpperCase() + zoneCode.slice(1).toLowerCase().replace(/_/g, " ");
     }
   } catch {
   }
@@ -313,17 +319,14 @@ function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(() => {
     if (!getGameBrowser()) return;
-    try {
-      const location = getZoneName();
-      const direction = headingToDirection(mp.players.local.heading);
-      if (location !== lastZone || direction !== lastDirection) {
-        lastZone = location;
-        lastDirection = direction;
-        if (location) sendToHUD("hudUpdateLocation", { location, direction });
-      }
-    } catch {
+    const location = getZoneName();
+    const direction = headingToDirection(mp.players.local.heading);
+    if (location !== lastZone || direction !== lastDirection) {
+      lastZone = location;
+      lastDirection = direction;
+      if (location) sendToHUD("hudUpdateLocation", { location, direction });
     }
-  }, 2e3);
+  }, 1e3);
 }
 function initHUD() {
   mp.events.add("client:startHUD", (charName, playerId, money) => {
@@ -353,13 +356,6 @@ function initHUD() {
       mp.console.logError(`[CHAT-FAIL] Svelte'e mesaj g\xF6nderilemedi: ${err?.message ?? err}`);
     }
   });
-  mp.events.add("render", () => {
-    if (!hudActive) return;
-    try {
-      mp.game.controls.disableControlAction(0, 245, true);
-    } catch {
-    }
-  });
   const VFLAG_ENGINE = 1;
   const VFLAG_LOCKED = 1 << 1;
   const VFLAG_SEATBELT = 1 << 2;
@@ -370,32 +366,64 @@ function initHUD() {
     speed: -1,
     fuel: -1
   };
-  setInterval(() => {
-    if (!hudActive) return;
-    const player = mp.players.local;
-    const vehicle = player.vehicle;
-    if (!vehicle) {
-      if (lastVehicleData.inVehicle) {
-        sendToHUD("chv", { inVehicle: false });
-        lastVehicleData.inVehicle = false;
-        lastVehicleData.speed = -1;
-        lastVehicleData.fuel = -1;
-        vehicleFlags = 0;
-        flagsDirty = false;
+  let speedInterval = null;
+  const flushVehicleFlags = () => {
+    if (!hudActive || !lastVehicleData.inVehicle || !flagsDirty) return;
+    sendToHUD("chv", { f: vehicleFlags });
+    flagsDirty = false;
+  };
+  const stopSpeedInterval = () => {
+    if (speedInterval) {
+      clearInterval(speedInterval);
+      speedInterval = null;
+    }
+  };
+  const startSpeedInterval = () => {
+    if (speedInterval) return;
+    speedInterval = setInterval(() => {
+      if (!hudActive) return;
+      const vehicle = mp.players.local.vehicle;
+      if (!vehicle) return;
+      const speed = Math.round(vehicle.getSpeed() * 3.6);
+      if (lastVehicleData.speed !== speed) {
+        lastVehicleData.speed = speed;
+        sendToHUD("chv", { inVehicle: true, speed });
       }
-      return;
-    }
+      flushVehicleFlags();
+    }, 200);
+  };
+  const enterVehicleHud = () => {
+    const vehicle = mp.players.local.vehicle;
+    if (!hudActive || !vehicle) return;
     const speed = Math.round(vehicle.getSpeed() * 3.6);
-    if (!lastVehicleData.inVehicle || lastVehicleData.speed !== speed) {
-      sendToHUD("chv", { inVehicle: true, speed });
-      lastVehicleData.inVehicle = true;
-      lastVehicleData.speed = speed;
-    }
-    if (flagsDirty) {
-      sendToHUD("chv", { f: vehicleFlags });
-      flagsDirty = false;
-    }
-  }, 100);
+    const fuel = Number(vehicle.getVariable("fuel") ?? 100);
+    let nextFlags = 0;
+    if (vehicle.getVariable("engineStatus")) nextFlags |= VFLAG_ENGINE;
+    if (vehicle.getVariable("lockedStatus")) nextFlags |= VFLAG_LOCKED;
+    if (mp.players.local.getVariable("seatbelt")) nextFlags |= VFLAG_SEATBELT;
+    vehicleFlags = nextFlags;
+    flagsDirty = false;
+    lastVehicleData.inVehicle = true;
+    lastVehicleData.speed = speed;
+    lastVehicleData.fuel = fuel;
+    sendToHUD("chv", { inVehicle: true, speed, fuel, f: vehicleFlags });
+    startSpeedInterval();
+  };
+  const leaveVehicleHud = () => {
+    stopSpeedInterval();
+    if (!lastVehicleData.inVehicle) return;
+    lastVehicleData.inVehicle = false;
+    lastVehicleData.speed = -1;
+    lastVehicleData.fuel = -1;
+    vehicleFlags = 0;
+    flagsDirty = false;
+    sendToHUD("chv", { inVehicle: false });
+  };
+  mp.events.add("playerEnterVehicle", () => enterVehicleHud());
+  mp.events.add("playerExitVehicle", () => leaveVehicleHud());
+  if (mp.players.local.vehicle) {
+    enterVehicleHud();
+  }
   mp.events.addDataHandler("fuel", (entity, value) => {
     if (!hudActive) return;
     if (entity !== mp.players.local.vehicle) return;
@@ -409,20 +437,29 @@ function initHUD() {
     if (entity !== mp.players.local.vehicle) return;
     if (value) vehicleFlags |= VFLAG_ENGINE;
     else vehicleFlags &= ~VFLAG_ENGINE;
-    flagsDirty = true;
+    if (lastVehicleData.inVehicle) {
+      flagsDirty = true;
+      flushVehicleFlags();
+    }
   });
   mp.events.addDataHandler("lockedStatus", (entity, value) => {
     if (!hudActive) return;
     if (entity !== mp.players.local.vehicle) return;
     if (value) vehicleFlags |= VFLAG_LOCKED;
     else vehicleFlags &= ~VFLAG_LOCKED;
-    flagsDirty = true;
+    if (lastVehicleData.inVehicle) {
+      flagsDirty = true;
+      flushVehicleFlags();
+    }
   });
   mp.events.addDataHandler("seatbelt", (entity, value) => {
     if (!hudActive || entity.type !== "player" || entity !== mp.players.local) return;
     if (value) vehicleFlags |= VFLAG_SEATBELT;
     else vehicleFlags &= ~VFLAG_SEATBELT;
-    flagsDirty = true;
+    if (lastVehicleData.inVehicle) {
+      flagsDirty = true;
+      flushVehicleFlags();
+    }
   });
 }
 
@@ -442,6 +479,7 @@ var playerCache = /* @__PURE__ */ new Map();
 var streamedArray = [];
 var slicingIndex = 0;
 var frameCount = 0;
+var renderAttached = false;
 var sharedScreenPos = [0, 0];
 var sharedTextOpts = {
   font: 4,
@@ -474,6 +512,16 @@ function initNametags() {
     }
   });
 }
+function ensureRenderAttached() {
+  if (renderAttached) return;
+  mp.events.add("render", renderNametagFrame);
+  renderAttached = true;
+}
+function ensureRenderDetached() {
+  if (!renderAttached) return;
+  mp.events.remove("render", renderNametagFrame);
+  renderAttached = false;
+}
 function getOrCreateData(id) {
   let data = playerCache.get(id);
   if (!data) {
@@ -484,7 +532,11 @@ function getOrCreateData(id) {
 }
 mp.events.add("entityStreamIn", (entity) => {
   if (entity.type === "player") {
-    streamedArray.push(entity);
+    const player = entity;
+    if (player === mp.players.local) return;
+    if (streamedArray.indexOf(player) !== -1) return;
+    streamedArray.push(player);
+    if (streamedArray.length === 1) ensureRenderAttached();
   }
 });
 mp.events.add("entityStreamOut", (entity) => {
@@ -492,9 +544,13 @@ mp.events.add("entityStreamOut", (entity) => {
     const idx = streamedArray.indexOf(entity);
     if (idx !== -1) streamedArray.splice(idx, 1);
     playerCache.delete(entity.remoteId);
+    if (streamedArray.length === 0) {
+      slicingIndex = 0;
+      ensureRenderDetached();
+    }
   }
 });
-mp.events.add("render", () => {
+function renderNametagFrame() {
   const len = streamedArray.length;
   if (len === 0) return;
   const local = mp.players.local;
@@ -572,7 +628,7 @@ mp.events.add("render", () => {
     }
     if (++drawCount >= 30) break;
   }
-});
+}
 
 // src/client/faction.ts
 init_auth();
@@ -1019,7 +1075,7 @@ mp.gui.chat.show(false);
 mp.game.ui.displayHud(false);
 mp.game.ui.displayRadar(false);
 mp.game.audio.startAudioScene("CHARACTER_CHANGE_IN_SKY_SCENE");
-setInterval(() => mp.game.invoke("0xF4F2C0D4EE209E20"), 29500);
+setInterval(() => mp.game.invoke("0xF4F2C0D4EE209E20"), 12e4);
 mp.game.gameplay.setFadeOutAfterDeath(false);
 mp.game.player.setHealthRechargeMultiplier(0);
 mp.game.controls.setControlNormal(27, 86, 1);
@@ -1119,6 +1175,15 @@ mp.events.add("playerEnteringVehicle", (vehicle, seat) => {
   mp.game.audio.setUserRadioControlEnabled(false);
 });
 mp.events.add("playerExitVehicle", (vehicle, _seat) => {
+  if (parkingBrakeOn) {
+    parkingBrakeOn = false;
+    if (vehicle && mp.vehicles.exists(vehicle) && vehicle.handle !== 0) {
+      try {
+        mp.game.invoke("0x684785568EF26A22", vehicle.handle, false);
+      } catch {
+      }
+    }
+  }
   if (cruiseActive) {
     cruiseActive = false;
     mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Ara\xE7tan \xE7\u0131k\u0131ld\u0131 \u2014 devre d\u0131\u015F\u0131.");
@@ -1222,24 +1287,16 @@ mp.events.add("client:vehicle:blip", (x, y, z, plate) => {
 var parkingBrakeOn = false;
 var cruiseActive = false;
 var cruiseTargetSpeed = 0;
-setInterval(() => {
-  const _p = mp.players.local;
-  if (_p.vehicle && mp.vehicles.exists(_p.vehicle) && _p.vehicle.handle !== 0) {
-    try {
-      mp.game.invoke("0x684785568EF26A22", _p.vehicle.handle, parkingBrakeOn);
-    } catch {
-    }
-  }
-}, 500);
-mp.events.add("playerExitVehicle", (_vehicle, _seat) => {
-  if (cruiseActive) {
-    cruiseActive = false;
-    mp.events.call("chat:push", "!{#94a3b8}[HIZ SAB\u0130TLEY\u0130C\u0130] Ara\xE7tan \xE7\u0131k\u0131ld\u0131 \u2014 devre d\u0131\u015F\u0131.");
-  }
-});
 mp.keys.bind(88, true, () => {
-  if (isUIOpen2() || !mp.players.local.vehicle) return;
+  if (isUIOpen2()) return;
+  const vehicle = mp.players.local.vehicle;
+  if (!vehicle || !mp.vehicles.exists(vehicle) || vehicle.handle === 0) return;
+  if (!mp.game.vehicle.getIsVehicleEngineRunning(vehicle.handle)) return;
   parkingBrakeOn = !parkingBrakeOn;
+  try {
+    mp.game.invoke("0x684785568EF26A22", vehicle.handle, parkingBrakeOn);
+  } catch {
+  }
   mp.events.call("chat:push", parkingBrakeOn ? "!{#ef4444}[EL FREN\u0130] \xC7ekildi." : "!{#94a3b8}[EL FREN\u0130] B\u0131rak\u0131ld\u0131.");
 });
 mp.keys.bind(190, true, () => {

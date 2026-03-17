@@ -315,14 +315,15 @@ let messages = $state<ChatMessage[]>([
     window.addEventListener('keydown', handleChatKeydown);
 
     // ── Senkronize saat sistemi (Time Offset yöntemi) ──────
+    const pad2 = (value: number): string => value.toString().padStart(2, '0');
     function updateSyncedTime() {
       const now = Date.now() + timeOffset;
       const date = new Date(now);
-      serverTime = date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false });
-      serverDate = date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      serverTime = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+      serverDate = `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
     }
     updateSyncedTime();
-    const timeInterval = setInterval(updateSyncedTime, 1000);
+    const timeInterval = setInterval(updateSyncedTime, 5000);
 
     window.openChat = () => {
       isChatActive = true;
@@ -510,7 +511,7 @@ let messages = $state<ChatMessage[]>([
     --color-border-subtle: rgba(255, 255, 255, 0.05);
     --color-text-primary: #ffffff;
     --color-text-muted: #bbbbbb;
-    --backdrop: blur(14px) saturate(1.2); 
+    --backdrop: none;
     
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
     pointer-events: none; font-family: 'Segoe UI', 'Inter', sans-serif; overflow: hidden;

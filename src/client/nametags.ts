@@ -19,6 +19,7 @@ const playerCache = new Map<number, PlayerData>();
 let streamedArray: PlayerMp[] = [];
 let slicingIndex = 0;
 let frameCount = 0;
+let renderAttached = false;
 
 // --- SIFIR ÇÖP (ZERO-ALLOCATION) İÇİN ÖNCEDEN YARATILMIŞ OBJELER ---
 // Döngü içinde ASLA yeni array veya obje yaratmıyoruz, bu sabitleri değiştiriyoruz!
@@ -57,6 +58,18 @@ export function initNametags(): void {
     });
 }
 
+function ensureRenderAttached(): void {
+    if (renderAttached) return;
+    mp.events.add('render', renderNametagFrame);
+    renderAttached = true;
+}
+
+function ensureRenderDetached(): void {
+    if (!renderAttached) return;
+    mp.events.remove('render', renderNametagFrame);
+    renderAttached = false;
+}
+
 function getOrCreateData(id: number): PlayerData {
     let data = playerCache.get(id);
     if (!data) {
@@ -68,7 +81,11 @@ function getOrCreateData(id: number): PlayerData {
 
 mp.events.add('entityStreamIn', (entity) => {
     if (entity.type === 'player') {
-        streamedArray.push(entity as PlayerMp);
+        const player = entity as PlayerMp;
+        if (player === mp.players.local) return;
+        if (streamedArray.indexOf(player) !== -1) return;
+        streamedArray.push(player);
+        if (streamedArray.length === 1) ensureRenderAttached();
     }
 });
 
@@ -77,10 +94,14 @@ mp.events.add('entityStreamOut', (entity) => {
         const idx = streamedArray.indexOf(entity as PlayerMp);
         if (idx !== -1) streamedArray.splice(idx, 1);
         playerCache.delete(entity.remoteId);
+        if (streamedArray.length === 0) {
+            slicingIndex = 0;
+            ensureRenderDetached();
+        }
     }
 });
 
-mp.events.add('render', () => {
+function renderNametagFrame() {
     const len = streamedArray.length;
     if (len === 0) return;
 
@@ -188,4 +209,4 @@ mp.events.add('render', () => {
 
         if (++drawCount >= 30) break;
     }
-});
+}

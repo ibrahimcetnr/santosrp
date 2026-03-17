@@ -48,8 +48,8 @@ mp.game.ui.displayRadar(false);
 // Ortam seslerini kıs
 mp.game.audio.startAudioScene("CHARACTER_CHANGE_IN_SKY_SCENE");
 
-// AFK kamerasını engelle
-setInterval(() => mp.game.invoke("0xF4F2C0D4EE209E20"), 29500);
+// AFK kamerasını engelle (daha seyrek tetikleme — idle spike azaltma)
+setInterval(() => mp.game.invoke("0xF4F2C0D4EE209E20"), 120000);
 
 // Ölüm sonrası ekran kararmasını kapat
 mp.game.gameplay.setFadeOutAfterDeath(false);
@@ -214,6 +214,14 @@ mp.events.add('playerEnteringVehicle', (vehicle: VehicleMp, seat: number) => {
 
 // Araçtan tamamen ÇIKILDIĞINDA (Animasyon bittiğinde)
 mp.events.add('playerExitVehicle', (vehicle: VehicleMp, _seat: number) => {
+    if (parkingBrakeOn) {
+        parkingBrakeOn = false;
+        if (vehicle && mp.vehicles.exists(vehicle) && vehicle.handle !== 0) {
+            try {
+                mp.game.invoke('0x684785568EF26A22', vehicle.handle, false);
+            } catch {}
+        }
+    }
     if (cruiseActive) {
         cruiseActive = false;
         mp.events.call('chat:push', '!{#94a3b8}[HIZ SABİTLEYİCİ] Araçtan çıkıldı — devre dışı.');
@@ -352,28 +360,18 @@ let parkingBrakeOn    = false;
 let cruiseActive      = false;
 let cruiseTargetSpeed = 0; // m/s
 
-// El freni — render döngüsü yerine 500ms hafif interval ile uygula (performans optimizasyonu)
-setInterval(() => {
-    const _p = mp.players.local;
-    if (_p.vehicle && mp.vehicles.exists(_p.vehicle) && _p.vehicle.handle !== 0) {
-        try {
-            mp.game.invoke('0x684785568EF26A22', _p.vehicle.handle, parkingBrakeOn);
-        } catch {}
-    }
-}, 500);
-
-// Araçtan çıkınca sıfırla
-mp.events.add('playerExitVehicle', (_vehicle: VehicleMp, _seat: number) => {
-    if (cruiseActive) {
-        cruiseActive = false;
-        mp.events.call('chat:push', '!{#94a3b8}[HIZ SABİTLEYİCİ] Araçtan çıkıldı — devre dışı.');
-    }
-});
-
 // X (88): El freni toggle
 mp.keys.bind(88, true, () => {
-    if (isUIOpen() || !mp.players.local.vehicle) return;
+    if (isUIOpen()) return;
+    const vehicle = mp.players.local.vehicle;
+    if (!vehicle || !mp.vehicles.exists(vehicle) || vehicle.handle === 0) return;
+    if (!mp.game.vehicle.getIsVehicleEngineRunning(vehicle.handle)) return;
+
     parkingBrakeOn = !parkingBrakeOn;
+    try {
+        mp.game.invoke('0x684785568EF26A22', vehicle.handle, parkingBrakeOn);
+    } catch {}
+
     mp.events.call('chat:push', parkingBrakeOn
         ? '!{#ef4444}[EL FRENİ] Çekildi.'
         : '!{#94a3b8}[EL FRENİ] Bırakıldı.');
